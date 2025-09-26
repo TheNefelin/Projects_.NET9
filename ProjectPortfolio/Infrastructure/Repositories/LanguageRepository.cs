@@ -24,4 +24,9 @@ public class LanguageRepository : IRepositoryPortfolioBase<Language>
         using var connection = _dapper.CreateConnection();
         return await connection.QueryAsync<Language>(commandDefinition);
     }
+
+    public Task<int> CreateAsync(Language entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

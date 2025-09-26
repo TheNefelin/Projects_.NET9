@@ -24,4 +24,9 @@ public class Pro_Lang_Repository : IRepositoryPortfolioBase<Pro_Lang>
         using var connection = _dapper.CreateConnection();
         return await connection.QueryAsync<Pro_Lang>(commandDefinition);
     }
+
+    public Task<int> CreateAsync(Pro_Lang entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

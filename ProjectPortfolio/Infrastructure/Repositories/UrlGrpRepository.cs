@@ -24,4 +24,9 @@ public class UrlGrpRepository : IRepositoryPortfolioBase<UrlGrp>
         using var connection = _dapper.CreateConnection();
         return await connection.QueryAsync<UrlGrp>(commandDefinition);
     }
+
+    public Task<int> CreateAsync(UrlGrp entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

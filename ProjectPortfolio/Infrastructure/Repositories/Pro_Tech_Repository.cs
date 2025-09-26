@@ -24,4 +24,9 @@ public class Pro_Tech_Repository : IRepositoryPortfolioBase<Pro_Tech>
         using var connection = _dapper.CreateConnection();
         return await connection.QueryAsync<Pro_Tech>(commandDefinition);
     }
+
+    public Task<int> CreateAsync(Pro_Tech entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

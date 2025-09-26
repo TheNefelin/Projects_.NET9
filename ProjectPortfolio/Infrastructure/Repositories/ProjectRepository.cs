@@ -24,4 +24,9 @@ public class ProjectRepository : IRepositoryPortfolioBase<Project>
         using var connection = _dapper.CreateConnection();
         return await connection.QueryAsync<Project>(commandDefinition);
     }
+
+    public Task<int> CreateAsync(Project entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

@@ -24,4 +24,9 @@ public class TechnologyRepository : IRepositoryPortfolioBase<Technology>
         using var connection = _dapper.CreateConnection();
         return await connection.QueryAsync<Technology>(commandDefinition);
     }
+
+    public Task<int> CreateAsync(Technology entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }
