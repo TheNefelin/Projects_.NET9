@@ -9,7 +9,7 @@ namespace WebApi.Controllers;
 
 [Route("api/portfolio")]
 [ApiController]
-//[ServiceFilter(typeof(ApiKeyFilter))]
+[ServiceFilter(typeof(ApiKeyFilter))]
 public class PortfolioController : ControllerBase
 {
     private readonly IWebHostEnvironment _webHostEnvironment;
