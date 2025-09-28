@@ -37,4 +37,19 @@ public class LanguageService : IServicePortfolioBase<Language>
             };
         }
     }
+
+    public Task<ApiResponse<Language?>> CreateAsync(Language entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<Language?>> UpdateAsync(Language entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<object>> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

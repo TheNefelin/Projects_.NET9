@@ -29,4 +29,14 @@ public class Pro_Lang_Repository : IRepositoryPortfolioBase<Pro_Lang>
     {
         throw new NotImplementedException();
     }
+
+    public Task<int> UpdateAsync(Pro_Lang entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<int> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

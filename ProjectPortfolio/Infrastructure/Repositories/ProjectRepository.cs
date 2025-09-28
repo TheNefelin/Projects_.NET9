@@ -29,4 +29,14 @@ public class ProjectRepository : IRepositoryPortfolioBase<Project>
     {
         throw new NotImplementedException();
     }
+
+    public Task<int> UpdateAsync(Project entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<int> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

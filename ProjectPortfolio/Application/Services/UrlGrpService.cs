@@ -37,4 +37,95 @@ public class UrlGrpService : IServicePortfolioBase<UrlGrp>
             };
         }
     }
+
+    public async Task<ApiResponse<UrlGrp?>> CreateAsync(UrlGrp entity, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var id = await _repository.CreateAsync(entity, cancellationToken);
+            entity.Id = id;
+
+            return new ApiResponse<UrlGrp?>
+            {
+                IsSuccess = true,
+                StatusCode = 201,
+                Message = "Created successfully",
+                Data = entity
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ApiResponse<UrlGrp?>
+            {
+                IsSuccess = false,
+                StatusCode = 500,
+                Message = ex.Message,
+            };
+        }
+    }
+
+    public async Task<ApiResponse<UrlGrp?>> UpdateAsync(UrlGrp entity, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rowsAffected = await _repository.UpdateAsync(entity, cancellationToken);
+
+            if (rowsAffected == 0)
+                return new ApiResponse<UrlGrp?>
+                {
+                    IsSuccess = false,
+                    StatusCode = 401,
+                    Message = "Update faild"
+                };
+
+            return new ApiResponse<UrlGrp?>
+            {
+                IsSuccess = true,
+                StatusCode = 201,
+                Message = "Updated successfully",
+                Data = entity
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ApiResponse<UrlGrp?>
+            {
+                IsSuccess = false,
+                StatusCode = 500,
+                Message = ex.Message,
+            };
+        }
+    }
+
+    public async Task<ApiResponse<object>> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rowsAffected = await _repository.DeleteAsync(Id, cancellationToken);
+
+            if (rowsAffected == 0)
+                return new ApiResponse<object>
+                {
+                    IsSuccess = false,
+                    StatusCode = 401,
+                    Message = "Delete faild"
+                };
+
+            return new ApiResponse<object>
+            {
+                IsSuccess = true,
+                StatusCode = 204,
+                Message = "Deleted successfully",
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ApiResponse<object>
+            {
+                IsSuccess = false,
+                StatusCode = 500,
+                Message = ex.Message,
+            };
+        }
+    }
 }

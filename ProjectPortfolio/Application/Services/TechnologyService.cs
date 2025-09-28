@@ -37,4 +37,19 @@ public class TechnologyService : IServicePortfolioBase<Technology>
             };
         }
     }
+
+    public Task<ApiResponse<Technology?>> CreateAsync(Technology entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<Technology?>> UpdateAsync(Technology entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<object>> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

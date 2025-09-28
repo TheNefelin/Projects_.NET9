@@ -89,4 +89,19 @@ public class PublicProjectsService : IServicePortfolioBase<ProjectResponse>
             };
         }
     }
+
+    public Task<ApiResponse<ProjectResponse?>> CreateAsync(ProjectResponse entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<ProjectResponse?>> UpdateAsync(ProjectResponse entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<object>> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

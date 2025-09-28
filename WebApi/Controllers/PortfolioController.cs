@@ -91,6 +91,13 @@ public class PortfolioController : ControllerBase
         return StatusCode(result.StatusCode, result);
     }
 
+    [HttpPost("url-grps")]
+    public async Task<ActionResult<ApiResponse<Url>>> CreateUrlGrp(UrlGrp urlGrp, CancellationToken cancellationToken)
+    {
+        var result = await _serviceUrlGrp.CreateAsync(urlGrp, cancellationToken);
+        return StatusCode(result.StatusCode, result);
+    }
+
     [HttpGet("url-grps")]
     public async Task<ActionResult<ApiResponse<IEnumerable<UrlGrp>>>> GetAllUrlGrps(CancellationToken cancellationToken)
     {
@@ -98,10 +105,45 @@ public class PortfolioController : ControllerBase
         return StatusCode(result.StatusCode, result);
     }
 
+    [HttpPut("url-grps")]
+    public async Task<ActionResult<ApiResponse<Url>>> UpdateUrlGrp(UrlGrp urlGrp, CancellationToken cancellationToken)
+    {
+        var result = await _serviceUrlGrp.UpdateAsync(urlGrp, cancellationToken);
+        return StatusCode(result.StatusCode, result);
+    }
+
+    [HttpDelete("url-grps/{id}")]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteUrlGrp(int id, CancellationToken cancellationToken)
+    {
+        var result = await _serviceUrlGrp.DeleteAsync(id, cancellationToken);
+        return StatusCode(result.StatusCode, result);
+    }
+
+    [HttpPost("urls")]
+    public async Task<ActionResult<ApiResponse<Url>>> CreateUrl(Url url, CancellationToken cancellationToken)
+    {
+        var result = await _serviceUrl.CreateAsync(url, cancellationToken);
+        return StatusCode(result.StatusCode, result);
+    }
+
     [HttpGet("urls")]
     public async Task<ActionResult<ApiResponse<IEnumerable<Url>>>> GetAllUrls(CancellationToken cancellationToken)
     {
         var result = await _serviceUrl.GetAllAsync(cancellationToken);
+        return StatusCode(result.StatusCode, result);
+    }
+
+    [HttpPut("urls")]
+    public async Task<ActionResult<ApiResponse<Url>>> UpdateUrl(Url url, CancellationToken cancellationToken)
+    {
+        var result = await _serviceUrl.UpdateAsync(url, cancellationToken);
+        return StatusCode(result.StatusCode, result);
+    }
+
+    [HttpDelete("urls/{id}")]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteUrl(int id, CancellationToken cancellationToken)
+    {
+        var result = await _serviceUrl.DeleteAsync(id, cancellationToken);
         return StatusCode(result.StatusCode, result);
     }
 }

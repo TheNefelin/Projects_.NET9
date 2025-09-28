@@ -29,4 +29,14 @@ public class TechnologyRepository : IRepositoryPortfolioBase<Technology>
     {
         throw new NotImplementedException();
     }
+
+    public Task<int> UpdateAsync(Technology entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<int> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

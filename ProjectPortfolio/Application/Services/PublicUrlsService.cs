@@ -57,4 +57,19 @@ public class PublicUrlsService : IServicePortfolioBase<UrlResponse>
             };
         }
     }
+
+    public Task<ApiResponse<UrlResponse?>> CreateAsync(UrlResponse entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<UrlResponse?>> UpdateAsync(UrlResponse entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<object>> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }

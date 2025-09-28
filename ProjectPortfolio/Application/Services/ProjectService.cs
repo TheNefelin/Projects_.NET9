@@ -37,4 +37,19 @@ public class ProjectService : IServicePortfolioBase<Project>
             };
         }
     }
+
+    public Task<ApiResponse<Project?>> CreateAsync(Project entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<Project?>> UpdateAsync(Project entity, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<ApiResponse<object>> DeleteAsync(int Id, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
 }
