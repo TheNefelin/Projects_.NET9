@@ -6,9 +6,9 @@ public class AuthUserLogin
 {
     [EmailAddress]
     [MaxLength(100)]
-    public required string Email { get; set; } = string.Empty;
+    public required string Email { get; set; }
 
     [MinLength(6)]
     [MaxLength(50)]
-    public required string Password { get; set; } = string.Empty;
+    public required string Password { get; set; }
 }

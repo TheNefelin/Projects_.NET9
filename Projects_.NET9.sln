@@ -22,6 +22,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectPasswordManager", "P
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectPortfolio", "ProjectPortfolio\ProjectPortfolio.csproj", "{2418E925-3F04-46D1-8BB2-8D628C9D92B4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyMauiApp", "MyMauiApp\MyMauiApp.csproj", "{65BECD71-80FD-4ADC-A756-BFA322929CDE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -56,6 +58,11 @@ Global
 		{2418E925-3F04-46D1-8BB2-8D628C9D92B4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2418E925-3F04-46D1-8BB2-8D628C9D92B4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2418E925-3F04-46D1-8BB2-8D628C9D92B4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Debug|Any CPU.Deploy.0 = Debug|Any CPU
+		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
