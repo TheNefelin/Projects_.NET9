@@ -6,11 +6,15 @@
     xmlns:views="clr-namespace:MyMauiApp.Views"
     Title="MyMauiApp">
 
+    <Shell.ToolbarItems>
+        <ToolbarItem x:Name="Logout" Text="Logout" Clicked="OnLogoutClicked" />
+    </Shell.ToolbarItems>
+
     <TabBar>
-        <Tab Title="Passwords" Icon="lock.png">
+        <Tab Title="Passwords" Icon="icon_book_512.png">
             <ShellContent ContentTemplate="{DataTemplate views:PasswordManagerPage}" />
         </Tab>
-        <Tab Title="Session" Icon="user.png">
+        <Tab Title="Session" Icon="icon_eye_shield_512.png">
             <ShellContent ContentTemplate="{DataTemplate views:SessionPage}" />
         </Tab>
     </TabBar>

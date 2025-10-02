@@ -1,9 +1,12 @@
+using MyMauiApp.ViewModels;
+
 namespace MyMauiApp.Views;
 
 public partial class SessionPage : ContentPage
 {
-	public SessionPage()
-	{
-		InitializeComponent();
-	}
+	public SessionPage(SessionViewModel viewModel)
+    {
+        InitializeComponent();
+        BindingContext = viewModel;
+    }
 }

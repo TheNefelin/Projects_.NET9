@@ -7,6 +7,10 @@ MyMauiApp/
 ├── Properties/
 │   └── launchSettings.json
 │
+├── Converters/
+│   ├── InvertedBoolConverter.cs
+│   └── IsNotNullOrEmptyConverter.cs
+│
 ├── Models/
 │   ├── ApiResponse.cs
 │   ├── AuthUserLogged.cs
@@ -23,8 +27,10 @@ MyMauiApp/
 │   └── AuthService.cs
 │
 ├── ViewModels/
+│   ├── BaseViewModel.cs
 │   ├── LoginViewModel.cs
-│   └── BaseViewModel.cs
+│   ├── PasswordManagerViewModel.cs
+│   └── SessionViewModel.cs
 │
 ├── Views/
 │   ├── AppShell.xaml

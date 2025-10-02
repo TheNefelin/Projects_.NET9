@@ -13,9 +13,14 @@ public partial class App : Application
     {
         var token = SecureStorage.GetAsync("ApiToken").Result;
 
-        return new Window(string.IsNullOrEmpty(token)
-            ? new NavigationPage(new LoginPage())
-            : new AppShell()
-        );
+        if (string.IsNullOrEmpty(token))
+        {
+            var loginPage = Handler.MauiContext!.Services.GetRequiredService<LoginPage>();
+            return new Window(new NavigationPage(loginPage));
+        }
+        else
+        {
+            return new Window(new AppShell());
+        }
     }
 }

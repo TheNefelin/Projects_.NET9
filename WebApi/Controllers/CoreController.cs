@@ -1,4 +1,5 @@
 ﻿using Infrastructure.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ProjectPasswordManager.Application.DTOs;
 using ProjectPasswordManager.Application.Interfaces;
@@ -10,6 +11,7 @@ namespace WebApi.Controllers;
 [Route("api/core")]
 [ApiController]
 [ServiceFilter(typeof(ApiKeyFilter))]
+[Authorize]
 public class CoreController : ControllerBase
 {
     private readonly ICoreDataService _coreService;

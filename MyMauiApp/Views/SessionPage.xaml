@@ -2,11 +2,47 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="MyMauiApp.Views.SessionPage"
-             Title="SessionPage">
-    <VerticalStackLayout>
-        <Label 
-            Text="Welcome to .NET MAUI!"
-            VerticalOptions="Center" 
-            HorizontalOptions="Center" />
-    </VerticalStackLayout>
+             Title="Session">
+
+    <ScrollView Padding="20">
+        <VerticalStackLayout Spacing="15">
+
+            <Frame BorderColor="Gray" Padding="15" CornerRadius="10">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Tiempo Restante" FontAttributes="Bold" FontSize="16"/>
+                    <Label Text="{Binding TimeRemaining}" FontSize="32" TextColor="Red" HorizontalOptions="Center"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame BorderColor="Gray" Padding="15" CornerRadius="10">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="User ID" FontAttributes="Bold"/>
+                    <Label Text="{Binding UserId}" FontSize="12"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame BorderColor="Gray" Padding="15" CornerRadius="10">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="Role" FontAttributes="Bold"/>
+                    <Label Text="{Binding Role}"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame BorderColor="Gray" Padding="15" CornerRadius="10">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="SQL Token" FontAttributes="Bold"/>
+                    <Label Text="{Binding SqlToken}" FontSize="10" LineBreakMode="WordWrap"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame BorderColor="Gray" Padding="15" CornerRadius="10">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="API Token" FontAttributes="Bold"/>
+                    <Label Text="{Binding ApiToken}" FontSize="10" LineBreakMode="WordWrap"/>
+                </VerticalStackLayout>
+            </Frame>
+
+        </VerticalStackLayout>
+    </ScrollView>
+    
 </ContentPage>
