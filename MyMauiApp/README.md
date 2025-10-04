@@ -11,6 +11,9 @@ MyMauiApp/
 │   ├── InvertedBoolConverter.cs
 │   └── IsNotNullOrEmptyConverter.cs
 │
+├── Extensions/
+│   └── HttpResponseExtensions.cs
+│
 ├── Models/
 │   ├── ApiResponse.cs
 │   ├── AuthUserLogged.cs
@@ -26,6 +29,10 @@ MyMauiApp/
 │   ├── IAuthService.cs
 │   └── AuthService.cs
 │
+├── Settings/
+│   ├── AppSettings.cs
+│   └── AppSettingsTemplate.cs
+│
 ├── ViewModels/
 │   ├── BaseViewModel.cs
 │   ├── LoginViewModel.cs
@@ -34,8 +41,10 @@ MyMauiApp/
 │
 ├── Views/
 │   ├── AppShell.xaml
+│   ├── CreateEditPasswordPage.xaml
 │   ├── LoginPage.xaml
 │   ├── PasswordManagerPage.xaml
+│   ├── PasswordPromptPage.xaml
 │   └── SessionPage.xaml
 │
 ├── App.xaml

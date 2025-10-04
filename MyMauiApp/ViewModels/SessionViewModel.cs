@@ -1,11 +1,12 @@
 ﻿using MyMauiApp.Services;
-using System.Windows.Input;
 
 namespace MyMauiApp.ViewModels;
 
 public class SessionViewModel : BaseViewModel
 {
     private readonly IAuthService _authService;
+    private readonly ISecureStorageService _storageService;
+
     private string _userId = string.Empty;
     private string _role = string.Empty;
     private string _sqlToken = string.Empty;
@@ -19,53 +20,56 @@ public class SessionViewModel : BaseViewModel
         get => _userId;
         set => SetProperty(ref _userId, value);
     }
-
     public string Role
     {
         get => _role;
         set => SetProperty(ref _role, value);
     }
-
     public string SqlToken
     {
         get => _sqlToken;
         set => SetProperty(ref _sqlToken, value);
     }
-
     public string ApiToken
     {
         get => _apiToken;
         set => SetProperty(ref _apiToken, value);
     }
-
     public string TimeRemaining
     {
         get => _timeRemaining;
         set => SetProperty(ref _timeRemaining, value);
     }
 
-    public ICommand LogoutCommand { get; }
-
-    public SessionViewModel(IAuthService authService)
+    public SessionViewModel(IAuthService authService, ISecureStorageService storageService)
     {
         _authService = authService;
+        _storageService = storageService;
         Title = "Session";
-        LogoutCommand = new Command(async () => await LogoutAsync());
-
         _ = LoadSessionDataAsync();
     }
 
     private async Task LoadSessionDataAsync()
     {
-        UserId = await _authService.GetUserIdAsync() ?? "N/A";
-        Role = await _authService.GetRoleAsync() ?? "N/A";
-        SqlToken = await _authService.GetSqlTokenAsync() ?? "N/A";
-        ApiToken = await _authService.GetJwtTokenAsync() ?? "N/A";
+        UserId = await _storageService.GetUserIdAsync() ?? "N/A";
+        Role = await _storageService.GetRoleAsync() ?? "N/A";
+        SqlToken = await _storageService.GetSqlTokenAsync() ?? "N/A";
+        ApiToken = await _storageService.GetApiTokenAsync() ?? "N/A";
 
-        var expireMin = await _authService.GetExpireMinAsync();
-        _expirationTime = DateTime.Now.AddMinutes(expireMin);
+        var expirationTime = await _storageService.GetExpirationTimeAsync();
 
-        StartCountdown();
+        if (expirationTime.HasValue)
+        {
+            _expirationTime = expirationTime.Value;
+
+            if (_expirationTime <= DateTime.Now)
+            {
+                await AutoLogoutAsync();
+                return;
+            }
+
+            StartCountdown();
+        }
     }
 
     private void StartCountdown()
@@ -89,15 +93,6 @@ public class SessionViewModel : BaseViewModel
 
     private async Task AutoLogoutAsync()
     {
-        await _authService.LogoutAsync();
-        Application.Current!.MainPage = new NavigationPage(
-            Application.Current.Handler.MauiContext!.Services.GetRequiredService<Views.LoginPage>()
-        );
-    }
-
-    private async Task LogoutAsync()
-    {
-        _timer?.Dispose();
         await _authService.LogoutAsync();
         Application.Current!.MainPage = new NavigationPage(
             Application.Current.Handler.MauiContext!.Services.GetRequiredService<Views.LoginPage>()

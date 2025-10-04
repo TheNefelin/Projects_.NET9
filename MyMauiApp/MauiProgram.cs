@@ -19,6 +19,7 @@ public static class MauiProgram
             });
 
         // Services
+        builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
         builder.Services.AddSingleton<IAuthService, AuthService>();
         builder.Services.AddSingleton<ICoreService, CoreService>();
         builder.Services.AddSingleton<HttpClient>();

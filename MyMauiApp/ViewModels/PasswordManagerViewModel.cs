@@ -1,5 +1,6 @@
 ﻿using MyMauiApp.Models;
 using MyMauiApp.Services;
+using MyMauiApp.Views;
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 
@@ -37,12 +38,42 @@ public class PasswordManagerViewModel : BaseViewModel
         _authService = authService;
         Title = "Password Manager";
 
-        DownloadCommand = new Command(async () => await DownloadPasswordsAsync());
-        DecryptCommand = new Command(async () => await DecryptAsync());
-        RegisterKeyCommand = new Command(async () => await RegisterKeyAsync());
-        CreateCommand = new Command(async () => await CreateAsync());
-        EditCommand = new Command<CoreUserData>(async (item) => await EditAsync(item));
-        DeleteCommand = new Command<CoreUserData>(async (item) => await DeleteAsync(item));
+        DownloadCommand = new Command(
+            execute: async () => await DownloadPasswordsAsync(),
+            canExecute: () => !IsBusy);
+
+        DecryptCommand = new Command(
+            execute: async () => await DecryptAsync(),
+            canExecute: () => !IsBusy);
+
+        RegisterKeyCommand = new Command(
+            execute: async () => await RegisterKeyAsync(),
+            canExecute: () => !IsBusy);
+
+        CreateCommand = new Command(
+            execute: async () => await CreateAsync(),
+            canExecute: () => !IsBusy);
+
+        EditCommand = new Command<CoreUserData>(
+            execute: async (item) => await EditAsync(item),
+            canExecute: (item) => !IsBusy);
+
+        DeleteCommand = new Command<CoreUserData>(
+            execute: async (item) => await DeleteAsync(item),
+            canExecute: (item) => !IsBusy);
+
+        PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(IsBusy))
+            {
+                ((Command)DownloadCommand).ChangeCanExecute();
+                ((Command)DecryptCommand).ChangeCanExecute();
+                ((Command)RegisterKeyCommand).ChangeCanExecute();
+                ((Command)CreateCommand).ChangeCanExecute();
+                ((Command)EditCommand).ChangeCanExecute();
+                ((Command)DeleteCommand).ChangeCanExecute();
+            }
+        };
     }
 
     private void FilterPasswords()
@@ -64,16 +95,7 @@ public class PasswordManagerViewModel : BaseViewModel
 
         try
         {
-            var userId = await _authService.GetUserIdAsync();
-            var sqlToken = await _authService.GetSqlTokenAsync();
-
-            var request = new CoreUserRequest
-            {
-                User_Id = Guid.Parse(userId),
-                SqlToken = Guid.Parse(sqlToken)
-            };
-
-            var result = await _coreService.GetAllCore(request);
+            var result = await _coreService.GetAllCore();
 
             if (result.IsSuccess && result.Data != null)
             {
@@ -98,97 +120,20 @@ public class PasswordManagerViewModel : BaseViewModel
         }
     }
 
-    private async Task DecryptAsync()
-    {
-        var password = await Application.Current.MainPage.DisplayPromptAsync(
-            "Desencriptar",
-            "Ingresa tu contraseña:",
-            placeholder: "Contraseña",
-            maxLength: 100,
-            keyboard: Keyboard.Text);
-
-        if (string.IsNullOrWhiteSpace(password)) return;
-
-        IsBusy = true;
-        try
-        {
-            var userId = await _authService.GetUserIdAsync();
-            var sqlToken = await _authService.GetSqlTokenAsync();
-
-            var request = new CorePasswordRequest
-            {
-                Password = password,
-                CoreUser = new CoreUserRequest
-                {
-                    User_Id = Guid.Parse(userId),
-                    SqlToken = Guid.Parse(sqlToken)
-                }
-            };
-
-            var result = await _coreService.GetCoreUserIVAsync(request);
-
-            if (result.IsSuccess && result.Data != null)
-            {
-                await Application.Current.MainPage.DisplayAlert(
-                    "IV Obtenido",
-                    $"IV: {result.Data.IV}",
-                    "OK");
-            }
-            else
-            {
-                await Application.Current.MainPage.DisplayAlert("Error", result.Message, "OK");
-            }
-        }
-        catch (Exception ex)
-        {
-            await Application.Current.MainPage.DisplayAlert("Error", ex.Message, "OK");
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
     private async Task RegisterKeyAsync()
     {
-        var password = await Application.Current.MainPage.DisplayPromptAsync(
-            "Registrar Contraseña",
-            "Ingresa nueva contraseña:",
-            placeholder: "Contraseña",
-            maxLength: 100,
-            keyboard: Keyboard.Text);
+        var page = new PasswordPromptPage("Registrar Contraseña", requireConfirmation: true);
+        await Application.Current.MainPage.Navigation.PushModalAsync(page);
 
-        if (string.IsNullOrWhiteSpace(password)) return;
+        while (Application.Current.MainPage.Navigation.ModalStack.Contains(page))
+            await Task.Delay(100);
 
-        var confirmPassword = await Application.Current.MainPage.DisplayPromptAsync(
-            "Confirmar Contraseña",
-            "Confirma tu contraseña:",
-            placeholder: "Contraseña",
-            maxLength: 100,
-            keyboard: Keyboard.Text);
-
-        if (password != confirmPassword)
-        {
-            await Application.Current.MainPage.DisplayAlert("Error", "Las contraseñas no coinciden", "OK");
-            return;
-        }
+        if (string.IsNullOrEmpty(page.Password)) return;
 
         IsBusy = true;
         try
         {
-            var userId = await _authService.GetUserIdAsync();
-            var sqlToken = await _authService.GetSqlTokenAsync();
-
-            var request = new CorePasswordRequest
-            {
-                Password = password,
-                CoreUser = new CoreUserRequest {
-                    User_Id = Guid.Parse(userId),
-                    SqlToken = Guid.Parse(sqlToken)
-                }
-            };
-
-            var result = await _coreService.RegisterPasswordAsync(request);
+            var result = await _coreService.RegisterPasswordAsync(page.Password);
 
             if (result.IsSuccess)
             {
@@ -209,16 +154,100 @@ public class PasswordManagerViewModel : BaseViewModel
         }
     }
 
+    private async Task DecryptAsync()
+    {
+        try
+        {
+
+            if (IsBusy) return; // Doble protección
+            IsBusy = true;
+
+            var page = new PasswordPromptPage("Desencriptar");
+            await Application.Current.MainPage.Navigation.PushModalAsync(page);
+
+            while (Application.Current.MainPage.Navigation.ModalStack.Contains(page))
+                await Task.Delay(100);
+
+            if (string.IsNullOrEmpty(page.Password)) return;
+
+            var result = await _coreService.GetCoreUserIVAsync(page.Password);
+
+            if (result.IsSuccess && result.Data != null)
+            {
+                await Application.Current.MainPage.DisplayAlert("IV Obtenido", $"IV: {result.Data.IV}", "OK");
+            }
+            else
+            {
+                await Application.Current.MainPage.DisplayAlert("Error", result.Message, "OK");
+            }
+        }
+        catch (Exception ex)
+        {
+            await Application.Current.MainPage.DisplayAlert("Error", ex.Message, "OK");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private async Task CreateAsync()
     {
-        // TODO: Formulario para crear password
-        await Application.Current.MainPage.DisplayAlert("Crear", "Formulario de creación", "OK");
+        var page = new CreateEditPasswordPage();
+        await Application.Current.MainPage.Navigation.PushModalAsync(page);
+
+        await page.Dispatcher.DispatchAsync(async () =>
+        {
+            while (Application.Current.MainPage.Navigation.ModalStack.Contains(page))
+                await Task.Delay(100);
+
+            if (page.Result != null)
+                await SavePasswordAsync(page.Result);
+        });
+    }
+
+    private async Task SavePasswordAsync(CoreUserData data)
+    {
+        IsBusy = true;
+        try
+        {
+            var result = data.Data_Id == Guid.Empty
+                ? await _coreService.InsertCore(data)
+                : await _coreService.UpdateCore(data);
+
+            if (result.IsSuccess)
+            {
+                await DownloadPasswordsAsync();
+                await Application.Current.MainPage.DisplayAlert("Éxito", "Guardado correctamente", "OK");
+            }
+            else
+            {
+                await Application.Current.MainPage.DisplayAlert("Error", result.Message, "OK");
+            }
+        }
+        catch (Exception ex)
+        {
+            await Application.Current.MainPage.DisplayAlert("Error", ex.Message, "OK");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     private async Task EditAsync(CoreUserData item)
     {
-        // TODO: Implementar edición (próximo paso)
-        await Application.Current.MainPage.DisplayAlert("Editar", $"Editando: {item.Data01}", "OK");
+        var page = new CreateEditPasswordPage(item);
+        await Application.Current.MainPage.Navigation.PushModalAsync(page);
+
+        await page.Dispatcher.DispatchAsync(async () =>
+        {
+            while (Application.Current.MainPage.Navigation.ModalStack.Contains(page))
+                await Task.Delay(100);
+
+            if (page.Result != null)
+                await SavePasswordAsync(page.Result);
+        });
     }
 
     private async Task DeleteAsync(CoreUserData item)
@@ -234,19 +263,7 @@ public class PasswordManagerViewModel : BaseViewModel
         IsBusy = true;
         try
         {
-            var userId = await _authService.GetUserIdAsync();
-            var sqlToken = await _authService.GetSqlTokenAsync();
-
-            var request = new CoreDataDelete
-            {
-                Data_Id = item.Data_Id,
-                CoreUser = new CoreUserRequest {
-                    User_Id = Guid.Parse(userId),
-                    SqlToken = Guid.Parse(sqlToken)
-                }
-            };
-
-            var result = await _coreService.DeleteCore(request);
+            var result = await _coreService.DeleteCore(item.Data_Id);
 
             if (result.IsSuccess)
             {

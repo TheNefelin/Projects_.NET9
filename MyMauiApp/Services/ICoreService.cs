@@ -4,10 +4,10 @@ namespace MyMauiApp.Services;
 
 public interface ICoreService
 {
-    Task<ApiResponse<CoreUserIV>> RegisterPasswordAsync(CorePasswordRequest corePasswordRequest);
-    Task<ApiResponse<CoreUserIV>> GetCoreUserIVAsync(CorePasswordRequest corePasswordRequest);
-    Task<ApiResponse<IEnumerable<CoreUserData>>> GetAllCore(CoreUserRequest coreUserRequest);
-    Task<ApiResponse<CoreUserData>> InsertCore(CoreDataRequest coreDataRequest);
-    Task<ApiResponse<CoreUserData>> UpdateCore(CoreDataRequest coreDataRequest);
-    Task<ApiResponse<object>> DeleteCore(CoreDataDelete coreDataDelete);
+    Task<ApiResponse<CoreUserIV>> RegisterPasswordAsync(string password);
+    Task<ApiResponse<CoreUserIV>> GetCoreUserIVAsync(string password);
+    Task<ApiResponse<IEnumerable<CoreUserData>>> GetAllCore();
+    Task<ApiResponse<CoreUserData>> InsertCore(CoreUserData coreUserData);
+    Task<ApiResponse<CoreUserData>> UpdateCore(CoreUserData coreUserData);
+    Task<ApiResponse<object>> DeleteCore(Guid DataId);
 }
