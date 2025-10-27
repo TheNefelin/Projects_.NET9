@@ -1,5 +1,6 @@
 ﻿using MyMauiApp.Models;
 using MyMauiApp.Settings;
+using MyMauiApp.Views;
 using System.Net.Http.Json;
 
 namespace MyMauiApp.Services;
@@ -47,5 +48,19 @@ public class AuthService : IAuthService
         }
     }
 
-    public async Task LogoutAsync() => await _storageService.ClearSessionAsync();
+    public async Task LogoutAsync()
+    {
+        await _storageService.ClearSessionAsync();
+
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            var loginPage = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<LoginPage>();
+            Application.Current!.Windows[0].Page = new NavigationPage(loginPage);
+        });
+    }
+
+    public async Task<bool> IsAuthenticatedAsync()
+    {
+        return await _storageService.IsAuthenticatedAsync();
+    }
 }

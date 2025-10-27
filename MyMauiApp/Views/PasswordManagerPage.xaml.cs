@@ -16,8 +16,8 @@ public partial class PasswordManagerPage : ContentPage
     private void OnItemTapped(object sender, EventArgs e)
     {
         var grid = (Grid)sender;
-        var frame = (Frame)grid.Parent.Parent;
-        var detailsSection = frame.FindByName<VerticalStackLayout>("DetailsSection");
+        var border = (Border)grid.Parent.Parent;
+        var detailsSection = border.FindByName<VerticalStackLayout>("DetailsSection");
         detailsSection.IsVisible = !detailsSection.IsVisible;
     }
 

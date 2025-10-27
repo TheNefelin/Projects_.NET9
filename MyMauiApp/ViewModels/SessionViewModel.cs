@@ -94,8 +94,5 @@ public class SessionViewModel : BaseViewModel
     private async Task AutoLogoutAsync()
     {
         await _authService.LogoutAsync();
-        Application.Current!.MainPage = new NavigationPage(
-            Application.Current.Handler.MauiContext!.Services.GetRequiredService<Views.LoginPage>()
-        );
     }
 }

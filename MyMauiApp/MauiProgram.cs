@@ -2,6 +2,7 @@
 using MyMauiApp.Services;
 using MyMauiApp.ViewModels;
 using MyMauiApp.Views;
+using Utils.Services;
 
 namespace MyMauiApp;
 
@@ -23,6 +24,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IAuthService, AuthService>();
         builder.Services.AddSingleton<ICoreService, CoreService>();
         builder.Services.AddSingleton<HttpClient>();
+        builder.Services.AddSingleton<IEncryptionService, EncryptionService>();
 
         // ViewModels
         builder.Services.AddTransient<LoginViewModel>();

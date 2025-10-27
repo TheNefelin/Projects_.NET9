@@ -66,7 +66,7 @@ public class LoginViewModel : BaseViewModel
 
         if (result.IsSuccess)
         {
-            Application.Current!.MainPage = new AppShell();
+            Application.Current!.Windows[0].Page = new AppShell();
         }
         else
         {

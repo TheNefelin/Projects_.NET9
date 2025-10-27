@@ -21,7 +21,5 @@ public partial class AppShell : Shell
     private async void OnLogoutClicked(object sender, EventArgs e)
     {
         await _authService.LogoutAsync();
-        var loginPage = Handler.MauiContext!.Services.GetRequiredService<LoginPage>();
-        Application.Current!.MainPage = new NavigationPage(loginPage);
     }
 }

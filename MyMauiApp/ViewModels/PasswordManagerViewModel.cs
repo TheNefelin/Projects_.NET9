@@ -3,11 +3,13 @@ using MyMauiApp.Services;
 using MyMauiApp.Views;
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using Utils.Services;
 
 namespace MyMauiApp.ViewModels;
 
 public class PasswordManagerViewModel : BaseViewModel
 {
+    private readonly IEncryptionService _encryptionService;
     private readonly ICoreService _coreService;
     private readonly IAuthService _authService;
 
@@ -32,8 +34,9 @@ public class PasswordManagerViewModel : BaseViewModel
     public ICommand EditCommand { get; }
     public ICommand DeleteCommand { get; }
 
-    public PasswordManagerViewModel(ICoreService coreService, IAuthService authService)
+    public PasswordManagerViewModel(IEncryptionService encryptionService, ICoreService coreService, IAuthService authService)
     {
+        _encryptionService = encryptionService;
         _coreService = coreService;
         _authService = authService;
         Title = "Password Manager";
@@ -82,9 +85,11 @@ public class PasswordManagerViewModel : BaseViewModel
 
         var filtered = string.IsNullOrWhiteSpace(SearchText)
             ? _allPasswords
-            : _allPasswords.Where(p => p.Data01.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+            : _allPasswords.Where(p => !string.IsNullOrEmpty(p.Data01) && p.Data01.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
 
-        foreach (var item in filtered)
+        var sorted = filtered.OrderBy(p => p.Data01 ?? string.Empty);
+
+        foreach (var item in sorted)
             PasswordList.Add(item);
     }
 
@@ -107,12 +112,12 @@ public class PasswordManagerViewModel : BaseViewModel
             }
             else
             {
-                await Application.Current.MainPage.DisplayAlert("Error", result.Message, "OK");
+                await Shell.Current.DisplayAlert("Error", result.Message, "OK");
             }
         }
         catch (Exception ex)
         {
-            await Application.Current.MainPage.DisplayAlert("Error", ex.Message, "OK");
+            await Shell.Current.DisplayAlert("Error", ex.Message, "OK");
         }
         finally
         {
@@ -123,9 +128,9 @@ public class PasswordManagerViewModel : BaseViewModel
     private async Task RegisterKeyAsync()
     {
         var page = new PasswordPromptPage("Registrar Contraseña", requireConfirmation: true);
-        await Application.Current.MainPage.Navigation.PushModalAsync(page);
+        await Shell.Current.Navigation.PushModalAsync(page);
 
-        while (Application.Current.MainPage.Navigation.ModalStack.Contains(page))
+        while (Shell.Current.Navigation.ModalStack.Contains(page))
             await Task.Delay(100);
 
         if (string.IsNullOrEmpty(page.Password)) return;
@@ -137,16 +142,16 @@ public class PasswordManagerViewModel : BaseViewModel
 
             if (result.IsSuccess)
             {
-                await Application.Current.MainPage.DisplayAlert("Éxito", "Contraseña registrada", "OK");
+                await Shell.Current.DisplayAlert("Éxito", "Contraseña registrada", "OK");
             }
             else
             {
-                await Application.Current.MainPage.DisplayAlert("Error", result.Message, "OK");
+                await Shell.Current.DisplayAlert("Error", result.Message, "OK");
             }
         }
         catch (Exception ex)
         {
-            await Application.Current.MainPage.DisplayAlert("Error", ex.Message, "OK");
+            await Shell.Current.DisplayAlert("Error", ex.Message, "OK");
         }
         finally
         {
@@ -163,9 +168,9 @@ public class PasswordManagerViewModel : BaseViewModel
             IsBusy = true;
 
             var page = new PasswordPromptPage("Desencriptar");
-            await Application.Current.MainPage.Navigation.PushModalAsync(page);
+            await Shell.Current.Navigation.PushModalAsync(page);
 
-            while (Application.Current.MainPage.Navigation.ModalStack.Contains(page))
+            while (Shell.Current.Navigation.ModalStack.Contains(page))
                 await Task.Delay(100);
 
             if (string.IsNullOrEmpty(page.Password)) return;
@@ -174,16 +179,34 @@ public class PasswordManagerViewModel : BaseViewModel
 
             if (result.IsSuccess && result.Data != null)
             {
-                await Application.Current.MainPage.DisplayAlert("IV Obtenido", $"IV: {result.Data.IV}", "OK");
+                var currentIV = result.Data.IV;
+
+                foreach (var item in PasswordList)
+                {
+                    try
+                    {
+                        item.Data01 = _encryptionService.Decrypt(item.Data01, page.Password, currentIV);
+                        item.Data02 = _encryptionService.Decrypt(item.Data02, page.Password, currentIV);
+                        item.Data03 = _encryptionService.Decrypt(item.Data03, page.Password, currentIV);
+                    }
+                    catch
+                    {
+                        // Ignorar errores de desencriptación para elementos individuales
+                    }
+                }
+
+                FilterPasswords();
+
+                await Shell.Current.DisplayAlert("IV Obtenido", $"IV: {result.Data.IV}", "OK");
             }
             else
             {
-                await Application.Current.MainPage.DisplayAlert("Error", result.Message, "OK");
+                await Shell.Current.DisplayAlert("Error", result.Message, "OK");
             }
         }
         catch (Exception ex)
         {
-            await Application.Current.MainPage.DisplayAlert("Error", ex.Message, "OK");
+            await Shell.Current.DisplayAlert("Error", ex.Message, "OK");
         }
         finally
         {
@@ -194,11 +217,11 @@ public class PasswordManagerViewModel : BaseViewModel
     private async Task CreateAsync()
     {
         var page = new CreateEditPasswordPage();
-        await Application.Current.MainPage.Navigation.PushModalAsync(page);
+        await Shell.Current.Navigation.PushModalAsync(page);
 
         await page.Dispatcher.DispatchAsync(async () =>
         {
-            while (Application.Current.MainPage.Navigation.ModalStack.Contains(page))
+            while (Shell.Current.Navigation.ModalStack.Contains(page))
                 await Task.Delay(100);
 
             if (page.Result != null)
@@ -218,16 +241,16 @@ public class PasswordManagerViewModel : BaseViewModel
             if (result.IsSuccess)
             {
                 await DownloadPasswordsAsync();
-                await Application.Current.MainPage.DisplayAlert("Éxito", "Guardado correctamente", "OK");
+                await Shell.Current.DisplayAlert("Éxito", "Guardado correctamente", "OK");
             }
             else
             {
-                await Application.Current.MainPage.DisplayAlert("Error", result.Message, "OK");
+                await Shell.Current.DisplayAlert("Error", result.Message, "OK");
             }
         }
         catch (Exception ex)
         {
-            await Application.Current.MainPage.DisplayAlert("Error", ex.Message, "OK");
+            await Shell.Current.DisplayAlert("Error", ex.Message, "OK");
         }
         finally
         {
@@ -238,11 +261,11 @@ public class PasswordManagerViewModel : BaseViewModel
     private async Task EditAsync(CoreUserData item)
     {
         var page = new CreateEditPasswordPage(item);
-        await Application.Current.MainPage.Navigation.PushModalAsync(page);
+        await Shell.Current.Navigation.PushModalAsync(page);
 
         await page.Dispatcher.DispatchAsync(async () =>
         {
-            while (Application.Current.MainPage.Navigation.ModalStack.Contains(page))
+            while (Shell.Current.Navigation.ModalStack.Contains(page))
                 await Task.Delay(100);
 
             if (page.Result != null)
@@ -252,7 +275,7 @@ public class PasswordManagerViewModel : BaseViewModel
 
     private async Task DeleteAsync(CoreUserData item)
     {
-        var confirm = await Application.Current.MainPage.DisplayAlert(
+        var confirm = await Shell.Current.DisplayAlert(
             "Eliminar",
             $"¿Eliminar {item.Data01}?",
             "Sí",
@@ -268,16 +291,16 @@ public class PasswordManagerViewModel : BaseViewModel
             if (result.IsSuccess)
             {
                 PasswordList.Remove(item);
-                await Application.Current.MainPage.DisplayAlert("Éxito", "Eliminado correctamente", "OK");
+                await Shell.Current.DisplayAlert("Éxito", "Eliminado correctamente", "OK");
             }
             else
             {
-                await Application.Current.MainPage.DisplayAlert("Error", result.Message, "OK");
+                await Shell.Current.DisplayAlert("Error", result.Message, "OK");
             }
         }
         catch (Exception ex)
         {
-            await Application.Current.MainPage.DisplayAlert("Error", ex.Message, "OK");
+            await Shell.Current.DisplayAlert("Error", ex.Message, "OK");
         }
         finally
         {

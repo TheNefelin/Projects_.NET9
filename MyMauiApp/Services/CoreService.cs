@@ -1,6 +1,6 @@
-﻿using MyMauiApp.Extensions;
-using MyMauiApp.Models;
+﻿using MyMauiApp.Models;
 using MyMauiApp.Settings;
+using System.Net;
 using System.Net.Http.Json;
 
 namespace MyMauiApp.Services;
@@ -12,15 +12,15 @@ public class CoreService : ICoreService
     private const string API_URL = $"{AppSettings.API_URL}/core";
     private const string API_KEY = AppSettings.API_KEY;
 
-    public CoreService(HttpClient httpClient, ISecureStorageService secureStorageService)
+    public CoreService(ISecureStorageService secureStorageService, HttpClient httpClient)
     {
-        _httpClient = httpClient;
         _secureStorageService = secureStorageService;
+        _httpClient = httpClient;
     }
 
     private async Task SetAuthHeadersAsync()
     {
-        var jwtToken = await SecureStorage.GetAsync("ApiToken");
+        var jwtToken = await _secureStorageService.GetApiTokenAsync();
 
         _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwtToken);
 
@@ -44,8 +44,16 @@ public class CoreService : ICoreService
             await SetAuthHeadersAsync();
             var response = await _httpClient.PostAsJsonAsync($"{API_URL}/register-password", corePasswordRequest);
 
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var authService = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<IAuthService>();
+                await authService.LogoutAsync();
+                return new ApiResponse<CoreUserIV> { IsSuccess = false, Message = "Unauthorized" }
+                ;
+            }
+
             if (!response.IsSuccessStatusCode)
-                return new ApiResponse<CoreUserIV> { IsSuccess = false, Message = response.RequestMessage.ToString() };
+                return new ApiResponse<CoreUserIV> { IsSuccess = false, Message = response.ReasonPhrase };
 
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<CoreUserIV>>();
             return result;
@@ -70,8 +78,16 @@ public class CoreService : ICoreService
             await SetAuthHeadersAsync();
             var response = await _httpClient.PostAsJsonAsync($"{API_URL}/get-iv", corePasswordRequest);
 
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var authService = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<IAuthService>();
+                await authService.LogoutAsync();
+                return new ApiResponse<CoreUserIV> { IsSuccess = false, Message = "Unauthorized" }
+                ;
+            }
+
             if (!response.IsSuccessStatusCode)
-                return new ApiResponse<CoreUserIV> { IsSuccess = false, Message = response.RequestMessage.ToString() };
+                return new ApiResponse<CoreUserIV> { IsSuccess = false, Message = response.ReasonPhrase };
 
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<CoreUserIV>>();
             return result;
@@ -91,11 +107,15 @@ public class CoreService : ICoreService
             await SetAuthHeadersAsync();
             var response = await _httpClient.GetAsync($"{API_URL}?User_Id={coreUserRequest.User_Id}&SqlToken={coreUserRequest.SqlToken}");
 
-            if (await response.HandleUnauthorizedAsync())
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var authService = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<IAuthService>();
+                await authService.LogoutAsync();
                 return new ApiResponse<IEnumerable<CoreUserData>> { IsSuccess = false, Message = "Unauthorized" };
+            }
 
             if (!response.IsSuccessStatusCode)
-                return new ApiResponse<IEnumerable<CoreUserData>> { IsSuccess = false, Message = response.RequestMessage.ToString() };
+                return new ApiResponse<IEnumerable<CoreUserData>> { IsSuccess = false, Message = response.ReasonPhrase };
 
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<IEnumerable<CoreUserData>>>();
             return result;
@@ -123,8 +143,15 @@ public class CoreService : ICoreService
             await SetAuthHeadersAsync();
             var response = await _httpClient.PostAsJsonAsync($"{API_URL}", coreDataRequest);
 
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var authService = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<IAuthService>();
+                await authService.LogoutAsync();
+                return new ApiResponse<CoreUserData> { IsSuccess = false, Message = "Unauthorized" };
+            }
+
             if (!response.IsSuccessStatusCode)
-                return new ApiResponse<CoreUserData> { IsSuccess = false, Message = response.RequestMessage.ToString() };
+                return new ApiResponse<CoreUserData> { IsSuccess = false, Message = response.ReasonPhrase };
 
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<CoreUserData>>();
             return result;
@@ -152,8 +179,15 @@ public class CoreService : ICoreService
             await SetAuthHeadersAsync();
             var response = await _httpClient.PutAsJsonAsync($"{API_URL}", coreDataRequest);
 
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var authService = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<IAuthService>();
+                await authService.LogoutAsync();
+                return new ApiResponse<CoreUserData> { IsSuccess = false, Message = "Unauthorized" };
+            }
+
             if (!response.IsSuccessStatusCode)
-                return new ApiResponse<CoreUserData> { IsSuccess = false, Message = response.RequestMessage.ToString() };
+                return new ApiResponse<CoreUserData> { IsSuccess = false, Message = response.ReasonPhrase };
 
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<CoreUserData>>();
             return result;
@@ -182,8 +216,15 @@ public class CoreService : ICoreService
             };
             var response = await _httpClient.SendAsync(request);
 
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var authService = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<IAuthService>();
+                await authService.LogoutAsync();
+                return new ApiResponse<object> { IsSuccess = false, Message = "Unauthorized" };
+            }
+
             if (!response.IsSuccessStatusCode)
-                return new ApiResponse<object> { IsSuccess = false, Message = response.RequestMessage.ToString() };
+                return new ApiResponse<object> { IsSuccess = false, Message = response.ReasonPhrase };
 
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
             return result;
