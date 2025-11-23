@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.14.36511.14
+# Visual Studio Version 18
+VisualStudioVersion = 18.0.11217.181 d18.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebApi", "WebApi\WebApi.csproj", "{5F9A24A8-0F4F-4D36-8601-2632310C1677}"
 EndProject
@@ -21,8 +21,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectPasswordManager", "ProjectPasswordManager\ProjectPasswordManager.csproj", "{A9BE1CF8-5713-4A27-B162-4A5A500D6CBB}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectPortfolio", "ProjectPortfolio\ProjectPortfolio.csproj", "{2418E925-3F04-46D1-8BB2-8D628C9D92B4}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyMauiApp", "MyMauiApp\MyMauiApp.csproj", "{65BECD71-80FD-4ADC-A756-BFA322929CDE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -58,11 +56,6 @@ Global
 		{2418E925-3F04-46D1-8BB2-8D628C9D92B4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2418E925-3F04-46D1-8BB2-8D628C9D92B4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2418E925-3F04-46D1-8BB2-8D628C9D92B4}.Release|Any CPU.Build.0 = Release|Any CPU
-		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Debug|Any CPU.Deploy.0 = Debug|Any CPU
-		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{65BECD71-80FD-4ADC-A756-BFA322929CDE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
