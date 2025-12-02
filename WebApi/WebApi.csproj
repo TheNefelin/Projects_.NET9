@@ -19,8 +19,4 @@
     <ProjectReference Include="..\ProjectPortfolio\ProjectPortfolio.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="wwwroot\" />
-  </ItemGroup>
-
 </Project>
