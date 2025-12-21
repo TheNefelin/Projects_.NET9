@@ -93,7 +93,7 @@ public class CoreDataService : ICoreDataService
             {
                 IsSuccess = true,
                 StatusCode = 201,
-                Message = "Created",
+                Message = "Se ha Creado correctamente",
                 Data = coreData
             };
         }
@@ -184,8 +184,8 @@ public class CoreDataService : ICoreDataService
             return new ApiResponse<object>
             {
                 IsSuccess = true,
-                StatusCode = 204,
-                Message = "No Content"
+                StatusCode = 200,
+                Message = "Se ha eliminado correctamente"
             };
         }
         catch (Exception ex)

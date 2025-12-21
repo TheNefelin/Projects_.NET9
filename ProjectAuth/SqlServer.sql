@@ -83,13 +83,13 @@ BEGIN
 
 	IF 0 = (SELECT ISNULL(IsEnableRegister, 0) FROM Mae_Config WHERE Config_Id = 1)
 		BEGIN
-			SELECT 0 AS IsSucces, 401 AS StatusCode, 'El Servicio de Registro No Esta Disponible' AS Message
+			SELECT 0 AS IsSuccess, 401 AS StatusCode, 'El Servicio de Registro No Esta Disponible' AS Message
 			RETURN
 		END
 
 	IF EXISTS (SELECT User_Id FROM Auth_Users WHERE Email = @Email)
 		BEGIN
-			SELECT 0 AS IsSucces, 400 AS StatusCode, 'El Usuario ya Existe' AS Message
+			SELECT 0 AS IsSuccess, 400 AS StatusCode, 'El Usuario ya Existe' AS Message
 			RETURN
 		END
 
@@ -99,10 +99,10 @@ BEGIN
 		VALUES
 			(@User_Id, @Email, @HashLogin, @SaltLogin, 2)
 
-		SELECT 1 AS IsSucces, 201 AS StatusCode, 'Usuario Registrado Correctamente' AS Message
+		SELECT 1 AS IsSuccess, 201 AS StatusCode, 'Usuario Registrado Correctamente' AS Message
     END TRY
     BEGIN CATCH
-		SELECT 0 AS IsSucces, ERROR_STATE() AS StatusCode, ERROR_MESSAGE() AS Message
+		SELECT 0 AS IsSuccess, ERROR_STATE() AS StatusCode, ERROR_MESSAGE() AS Message
     END CATCH
 END
 GO

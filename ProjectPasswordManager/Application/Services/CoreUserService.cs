@@ -42,7 +42,7 @@ public class CoreUserService : ICoreUserService
                 {
                     IsSuccess = false,
                     StatusCode = 400,
-                    Message = "Ya Tienes una Clave Creada."
+                    Message = "Ya Tienes una Clave de Encriptación Creada."
                 };
 
             var (hash, salt) = _passwordUtil.HashPassword(coreUserPassword.Password);
@@ -60,7 +60,7 @@ public class CoreUserService : ICoreUserService
             {
                 IsSuccess = true,
                 StatusCode = 200,
-                Message = "Clave Creada Correctamente.",
+                Message = "Clave de Encriptación Creada Correctamente.",
                 Data = coreUserIV
             };
         }
@@ -99,7 +99,7 @@ public class CoreUserService : ICoreUserService
                 {
                     IsSuccess = false,
                     StatusCode = 401,
-                    Message = "Debes Crear una Clave."
+                    Message = "Debes Crear una Clave de Encriptación."
                 };
 
             bool isPasswordOk = _passwordUtil.VerifyPassword(coreUserPassword.Password, coreUser.HashPM, coreUser.SaltPM);
