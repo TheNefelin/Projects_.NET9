@@ -7,4 +7,5 @@ public class Project
     public string? ImgUrl { get; set; }
     public string? RepoUrl { get; set; }
     public string? AppUrl { get; set; }
+    public bool IsEnabled { get; set; }
 }

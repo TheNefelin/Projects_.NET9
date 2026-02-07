@@ -1,5 +1,4 @@
 ﻿using Infrastructure.Models;
-using ProjectPortfolio.Domain.Entities;
 
 namespace ProjectPortfolio.Application.Interfaces;
 

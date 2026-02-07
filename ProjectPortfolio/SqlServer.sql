@@ -8,7 +8,8 @@ CREATE TABLE PF_Projects (
 	Name VARCHAR(50) NOT NULL,
 	ImgUrl VARCHAR(100) NOT NULL,
 	RepoUrl VARCHAR(256),
-	AppUrl VARCHAR(256)
+	AppUrl VARCHAR(256),
+	IsEnabled BIT NOT NULL DEFAULT 0,
 )
 GO
 
@@ -84,20 +85,21 @@ GO
 SET IDENTITY_INSERT PF_Projects ON
 GO
 INSERT INTO PF_Projects
-	(Id, Name, ImgUrl, RepoUrl, AppUrl)
+	(Id, Name, ImgUrl, RepoUrl, AppUrl, IsEnabled)
 VALUES
-	(1, 'Transbank POS Integration', 'project_pos_863x568.webp', 'https://github.com/TheNefelin/Transbank_POS_v1', null),
-	(2, 'Arduino DHT Temperature Monitoring by Network', 'project_dht_863x568.webp', 'https://github.com/TheNefelin/DHT', null),
-	(3, 'El Cubo v2.0', 'project_cube2_863x568.webp', null, null),
-	(4, 'Portafolio v1.0', 'project_portfolio1_863x568.webp', 'https://github.com/TheNefelin/Portafolio-NextJS', 'https://portafolio-next-js-sand.vercel.app'),
-	(5, 'Portafolio v2.0', 'project_portfolio2_863x568.webp', 'https://github.com/TheNefelin/Portafolio-Angular-ssr', 'https://portafolio-angular-ssr.vercel.app'),
-	(6, 'Bier Heart Page', 'project_bierheart_863x568.webp', 'https://github.com/TheNefelin/BierHeart_Vue', 'https://www.bierheart.cl'),
-	(7, 'WebP Converter', 'project_webp_863x568.webp', 'https://github.com/TheNefelin/WebPConverter_.NETCore', null),
-	(8, 'Trueke Mobile App', 'project_trueke_863x568.webp', 'https://github.com/TheNefelin/Kambio_.NetCore', null),
-	(9, 'Password Manager Mobile App', 'project_pm_863x568.webp', 'https://github.com/TheNefelin/Portfolio_.NETCore/tree/master/MauiAppAdmin', null),
-	(10, 'Guides for Games (NextJS)', 'project_ggv1_863x568.webp', 'https://github.com/TheNefelin/game-guides-nextjs', 'https://game-guides-nextjs.vercel.app'),
-	(11, 'Portafolio v3.0 (Astro)', 'project_portfolio3_863x568.webp', 'https://github.com/TheNefelin/portfolio-astro', 'https://www.francisco-dev.cl'),
-	(12, 'WebApi for Projects', 'project_webapi_863x568.webp', 'https://github.com/TheNefelin/Projects_.NETCore', 'https://dragonra.bsite.net/index.html')
+	(1, 'Transbank POS Integration', 'project_pos_863x568.webp', 'https://github.com/TheNefelin/Transbank_POS_v1', null, 1),
+	(2, 'Arduino DHT Temperature Monitoring by Network', 'project_dht_863x568.webp', 'https://github.com/TheNefelin/DHT', null, 1),
+	(3, 'El Cubo v2.0', 'project_cube2_863x568.webp', null, null, 1),
+	(4, 'Portafolio v1.0', 'project_portfolio1_863x568.webp', 'https://github.com/TheNefelin/Portafolio-NextJS', 'https://portafolio-next-js-sand.vercel.app', 1),
+	(5, 'Portafolio v2.0', 'project_portfolio2_863x568.webp', 'https://github.com/TheNefelin/Portafolio-Angular-ssr', 'https://portafolio-angular-ssr.vercel.app', 1),
+	(6, 'Bier Heart Page', 'project_bierheart_863x568.webp', 'https://github.com/TheNefelin/BierHeart_Vue', 'https://www.bierheart.cl', 1),
+	(7, 'WebP Converter', 'project_webp_863x568.webp', 'https://github.com/TheNefelin/WebPConverter_.NETCore', null, 1),
+	(8, 'Trueke Mobile App', 'project_trueke_863x568.webp', 'https://github.com/TheNefelin/Kambio_.NetCore', null, 1),
+	(9, 'Password Manager Mobile App', 'project_pm_863x568.webp', 'https://github.com/TheNefelin/Portfolio_.NETCore/tree/master/MauiAppAdmin', null, 1),
+	(10, 'Guides for Games (NextJS)', 'project_ggv1_863x568.webp', 'https://github.com/TheNefelin/game-guides-nextjs', 'https://game-guides-nextjs.vercel.app', 1),
+	(11, 'Portafolio v3.0 (Astro)', 'project_portfolio3_863x568.webp', 'https://github.com/TheNefelin/portfolio-astro', 'https://www.francisco-dev.cl', 1),
+	(12, 'WebApi for Projects', 'project_webapi_863x568.webp', 'https://github.com/TheNefelin/Projects_.NETCore', 'https://dragonra.bsite.net/index.html', 1),
+	(13, 'Navaja Suiza (Android)', 'project_navaja_suiza_863x568.webp', 'https://github.com/TheNefelin/NavajaSuiza_.NET10', null, 1)
 SET IDENTITY_INSERT PF_Projects OFF
 GO
 

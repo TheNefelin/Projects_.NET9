@@ -92,7 +92,7 @@ public class PortfolioController : ControllerBase
     }
 
     [HttpPost("url-grps")]
-    public async Task<ActionResult<ApiResponse<Url>>> CreateUrlGrp(UrlGrp urlGrp, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<UrlGrp>>> CreateUrlGrp(UrlGrp urlGrp, CancellationToken cancellationToken)
     {
         var result = await _serviceUrlGrp.CreateAsync(urlGrp, cancellationToken);
         return StatusCode(result.StatusCode, result);
@@ -106,7 +106,7 @@ public class PortfolioController : ControllerBase
     }
 
     [HttpPut("url-grps")]
-    public async Task<ActionResult<ApiResponse<Url>>> UpdateUrlGrp(UrlGrp urlGrp, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<UrlGrp>>> UpdateUrlGrp(UrlGrp urlGrp, CancellationToken cancellationToken)
     {
         var result = await _serviceUrlGrp.UpdateAsync(urlGrp, cancellationToken);
         return StatusCode(result.StatusCode, result);

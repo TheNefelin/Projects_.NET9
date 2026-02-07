@@ -17,7 +17,7 @@ public class ProjectRepository : IRepositoryPortfolioBase<Project>
     public async Task<IEnumerable<Project>> GetAllAsync(CancellationToken cancellationToken)
     {
         var commandDefinition = new CommandDefinition(
-            commandText: "SELECT Id, Name, ImgUrl, RepoUrl, AppUrl FROM PF_Projects ORDER BY Id DESC",
+            commandText: "SELECT Id, Name, ImgUrl, RepoUrl, AppUrl, IsEnabled FROM PF_Projects ORDER BY Id DESC",
             cancellationToken: cancellationToken
         );
 

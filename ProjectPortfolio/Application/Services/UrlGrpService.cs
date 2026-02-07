@@ -114,7 +114,7 @@ public class UrlGrpService : IServicePortfolioBase<UrlGrp>
             return new ApiResponse<object>
             {
                 IsSuccess = true,
-                StatusCode = 204,
+                StatusCode = 200, //204,
                 Message = "Deleted successfully",
             };
         }

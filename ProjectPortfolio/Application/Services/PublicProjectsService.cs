@@ -53,6 +53,7 @@ public class PublicProjectsService : IServicePortfolioBase<ProjectResponse>
                 ImgUrl = a.ImgUrl,
                 RepoUrl = a.RepoUrl,
                 AppUrl = a.AppUrl,
+                IsEnabled = a.IsEnabled,
                 Languages = proLangs
                 .Where(b => b.Id_Project == a.Id)
                 .Join(languages, b => b.Id_Language, c => c.Id, (b, c) => new Language
