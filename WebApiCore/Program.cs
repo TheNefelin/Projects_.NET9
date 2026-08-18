@@ -211,11 +211,11 @@ app.UseExceptionHandler();
 app.UseRateLimiter();
 
 app.UseSwagger();
-app.UseSwaggerUI(c =>
+app.UseSwaggerUI(options =>
 {
-    c.SwaggerEndpoint("./swagger/v1/swagger.json", "WebApiCore API v1");
-    c.RoutePrefix = string.Empty;
-    c.DisplayRequestDuration();
+    options.RoutePrefix = string.Empty;
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "WebApiCore API v1");
+    options.DisplayRequestDuration();
 });
 
 app.UseCors("_allowedOrigins");
