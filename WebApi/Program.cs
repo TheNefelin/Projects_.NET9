@@ -35,7 +35,8 @@ var builder = WebApplication.CreateBuilder(args);
 // ======================================================================
 builder.Services.AddTransient<IDapperContext>(provider =>
 {
-    return new DapperContext(builder.Configuration.GetConnectionString("SqlServerWeb")!);
+    //return new DapperContext(builder.Configuration.GetConnectionString("SqlServerWeb")!);
+    return new DapperContext(builder.Configuration.GetConnectionString("SqlServer")!);
 });
 
 // ======================================================================
