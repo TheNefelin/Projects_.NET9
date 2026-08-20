@@ -1,46 +1,57 @@
-﻿using Infrastructure.Models;
-using Microsoft.AspNetCore.Mvc;
-using ProjectAuth.Application.DTOs;
-using ProjectAuth.Application.Interfaces;
-using ProjectAuth.Infrastructure.Models;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using WebApi.Filters;
+using WebApi.Helpers;
+using WebApiPM.Application.Common;
+using WebApiPM.Application.DTOs;
+using WebApiPM.Application.Interfaces;
 
 namespace WebApi.Controllers;
 
 [Route("api/auth")]
 [ApiController]
 [ServiceFilter(typeof(ApiKeyFilter))]
+[EnableRateLimiting("client_25_per_minute")]
 public class AuthController : ControllerBase
 {
-    private readonly IConfiguration _configuration;
     private readonly IAuthUserService _authUserService;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthUserService authUserService, IConfiguration configuration)
+    public AuthController(IAuthUserService authUserService, ILogger<AuthController> logger)
     {
         _authUserService = authUserService;
-        _configuration = configuration;
+        _logger = logger;
     }
 
     [HttpPost("register")]
-    public async Task<ActionResult<ApiResponse<AuthUserResponse>>> Register(AuthUserRegister authUserRegister, CancellationToken cancelationToken)
+    [EnableRateLimiting("register_5_per_minute")]
+    public async Task<ActionResult<ApiResponse<AuthUserResponse>>> Register(AuthUserRegister authUserRegister, CancellationToken cancellationToken)
     {
-        var apiResult = await _authUserService.RegisterAsync(authUserRegister, cancelationToken);
+        var apiResult = await _authUserService.RegisterAsync(authUserRegister, cancellationToken);
+
+        if (apiResult.IsSuccess)
+            _logger.LogInformation("Registro exitoso. IP {Ip} - Email {Email}", ClientIpResolver.Resolve(HttpContext), authUserRegister.Email);
+        else
+            _logger.LogWarning("Registro fallido. IP {Ip} - Email {Email} - Status {StatusCode} - Motivo {Message}",
+                ClientIpResolver.Resolve(HttpContext), authUserRegister.Email, apiResult.StatusCode, apiResult.Message);
+
         return StatusCode(apiResult.StatusCode, apiResult);
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<ApiResponse<AuthUserLogged>>> Login(AuthUserLogin authUserLogin, CancellationToken cancelationToken)
+    [EnableRateLimiting("login_5_per_minute")]
+    public async Task<ActionResult<ApiResponse<AuthUserLogged>>> Login(AuthUserLogin authUserLogin, CancellationToken cancellationToken)
     {
-        var jwtConfig = new JwtConfig()
-        {
-            Key = _configuration["Jwt:Key"]!,
-            Issuer = _configuration["Jwt:Issuer"]!,
-            Audience = _configuration["Jwt:Audience"]!,
-            Subject = _configuration["JWT:Subject"]!,
-            ExpireMin = _configuration["JWT:ExpireMin"]!
-        };
+        var clientIp = ClientIpResolver.Resolve(HttpContext);
+        var apiResult = await _authUserService.LoginAsync(authUserLogin, clientIp, cancellationToken);
 
-        var apiResult = await _authUserService.LoginAsync(authUserLogin, jwtConfig, cancelationToken);
+        if (apiResult.IsSuccess)
+            _logger.LogInformation("Login exitoso. IP {Ip} - Email {Email}", clientIp, authUserLogin.Email);
+        else if (apiResult.StatusCode == StatusCodes.Status429TooManyRequests)
+            _logger.LogWarning("Login bloqueado por IP. IP {Ip} - Email {Email}", clientIp, authUserLogin.Email);
+        else
+            _logger.LogWarning("Login fallido. IP {Ip} - Email {Email}", clientIp, authUserLogin.Email);
+
         return StatusCode(apiResult.StatusCode, apiResult);
     }
 }

@@ -1,69 +1,37 @@
-using Infrastructure.Models;
-using System.Net;
-using System.Text.Json;
+﻿using Microsoft.AspNetCore.Diagnostics;
+using WebApiPM.Application.Common;
 
 namespace WebApi.Middleware;
 
-public class GlobalExceptionHandler
+public class GlobalExceptionHandler : IExceptionHandler
 {
-    private readonly RequestDelegate _next;
     private readonly ILogger<GlobalExceptionHandler> _logger;
 
-    public GlobalExceptionHandler(RequestDelegate next, ILogger<GlobalExceptionHandler> logger)
+    public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger)
     {
-        _next = next;
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
-        try
-        {
-            await _next(context);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unhandled exception occurred");
-            await HandleExceptionAsync(context, ex);
-        }
-    }
-
-    private static async Task HandleExceptionAsync(HttpContext context, Exception exception)
-    {
-        context.Response.ContentType = "application/json";
+        _logger.LogError(exception, "Excepción no controlada.");
 
         var (statusCode, message) = exception switch
         {
-            ArgumentNullException => (HttpStatusCode.BadRequest, "Required parameter is missing"),
-            ArgumentException => (HttpStatusCode.BadRequest, exception.Message),
-            UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "Unauthorized access"),
-            KeyNotFoundException => (HttpStatusCode.NotFound, "Resource not found"),
-            InvalidOperationException => (HttpStatusCode.Conflict, exception.Message),
-            _ => (HttpStatusCode.InternalServerError, "An internal error occurred")
+            ArgumentNullException => (StatusCodes.Status400BadRequest, "Parámetro requerido no proporcionado."),
+            ArgumentException => (StatusCodes.Status400BadRequest, "Argumento inválido."),
+            UnauthorizedAccessException => (StatusCodes.Status401Unauthorized, "Acceso no autorizado."),
+            KeyNotFoundException => (StatusCodes.Status404NotFound, "Recurso no encontrado."),
+            InvalidOperationException => (StatusCodes.Status409Conflict, "Conflicto en la operación."),
+            _ => (StatusCodes.Status500InternalServerError, "Ocurrió un error inesperado.")
         };
 
-        context.Response.StatusCode = (int)statusCode;
+        httpContext.Response.StatusCode = statusCode;
+        httpContext.Response.ContentType = "application/json";
 
-        var response = new ApiResponse<object>
-        {
-            IsSuccess = false,
-            StatusCode = (int)statusCode,
-            Message = message
-        };
+        var response = ApiResponse.Failure<object>(statusCode, message, traceId: httpContext.TraceIdentifier);
 
-        var json = JsonSerializer.Serialize(response, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        });
-
-        await context.Response.WriteAsync(json);
-    }
-}
-
-public static class GlobalExceptionHandlerExtensions
-{
-    public static IApplicationBuilder UseGlobalExceptionHandler(this IApplicationBuilder app)
-    {
-        return app.UseMiddleware<GlobalExceptionHandler>();
+        await httpContext.Response.WriteAsJsonAsync(response, cancellationToken);
+        return true;
     }
 }

@@ -1,52 +1,70 @@
-﻿using Infrastructure.Models;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using ProjectAuth.Application.Interfaces;
+using WebApi.Helpers;
+using WebApiPM.Application.Common;
+using WebApiPM.Application.Interfaces;
 
 namespace WebApi.Filters;
 
 public class ApiKeyFilter : IAsyncActionFilter
 {
-    private readonly string ApiKeyHeaderName = "ApiKey";
-    private readonly IMaeConfigService _maeConfigService;
+    private const string ApiKeyHeaderName = "ApiKey";
 
-    public ApiKeyFilter(IMaeConfigService maeConfigService)
+    private readonly IMaeConfigService _maeConfigService;
+    private readonly IIpLockoutService _lockoutService;
+    private readonly ILogger<ApiKeyFilter> _logger;
+
+    public ApiKeyFilter(
+        IMaeConfigService maeConfigService,
+        [FromKeyedServices("api-key")] IIpLockoutService lockoutService,
+        ILogger<ApiKeyFilter> logger)
     {
         _maeConfigService = maeConfigService;
+        _lockoutService = lockoutService;
+        _logger = logger;
     }
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        // Intentar obtener el valor de ApiKey del header
-        if (!context.HttpContext.Request.Headers.TryGetValue(ApiKeyHeaderName, out var apiKey) || string.IsNullOrEmpty(apiKey))
-        {
-            // Si ApiKey no está presente o es nula, retornar un 401
-            context.Result = new UnauthorizedObjectResult(new ApiResponse<object>
-            {
-                IsSuccess = false,
-                StatusCode = 401,
-                Message = "ApiKey es Requerida."
-            });
+        var clientIp = ClientIpResolver.Resolve(context.HttpContext);
 
+        if (_lockoutService.IsBlocked(clientIp))
+        {
+            var remaining = _lockoutService.GetRemainingBlockTime(clientIp);
+            if (remaining is TimeSpan remainingTime)
+                context.HttpContext.Response.Headers.RetryAfter = ((int)remainingTime.TotalSeconds).ToString();
+
+            context.Result = new ObjectResult(
+                ApiResponse.Failure<object>(429, "Demasiados intentos fallidos de ApiKey. Intenta nuevamente más tarde."))
+            {
+                StatusCode = StatusCodes.Status429TooManyRequests
+            };
             return;
         }
 
-        // Llama al servicio para validar ApiKey en la base de datos
-        var IsValid = await _maeConfigService.ValidateApiKey(apiKey);
+        var apiKey = context.HttpContext.Request.Headers[ApiKeyHeaderName].FirstOrDefault();
 
-        if (!IsValid)
+        if (string.IsNullOrEmpty(apiKey))
         {
-            context.Result = new UnauthorizedObjectResult(new ApiResponse<object>
-            {
-                IsSuccess = false,
-                StatusCode = 401,
-                Message = "ApiKey no Autorizado."
-            });
-
+            _lockoutService.RegisterFailure(clientIp);
+            context.Result = new UnauthorizedObjectResult(ApiResponse.Failure<object>(401, "ApiKey es requerida."));
             return;
         }
 
-        // Llamar a la siguiente acción si la ApiKey está presente
+        var isValid = await _maeConfigService.ValidateApiKey(apiKey, context.HttpContext.RequestAborted);
+
+        if (!isValid)
+        {
+            _lockoutService.RegisterFailure(clientIp);
+
+            if (_lockoutService.IsBlocked(clientIp))
+                _logger.LogWarning("IP {Ip} bloqueada por exceso de intentos fallidos de ApiKey.", clientIp);
+
+            context.Result = new UnauthorizedObjectResult(ApiResponse.Failure<object>(401, "ApiKey no autorizada."));
+            return;
+        }
+
+        _lockoutService.Reset(clientIp);
         await next();
     }
 }

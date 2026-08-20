@@ -1,119 +1,120 @@
-using Infrastructure.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using ProjectAuth.Application.Interfaces;
-using ProjectAuth.Application.Services;
-using ProjectAuth.Domain.Interfaces;
-using ProjectAuth.Infrastructure.Repositories;
-using ProjectAuth.Infrastructure.Services;
-using ProjectGamesGuide.Application.Interfaces;
-using ProjectGamesGuide.Application.Services;
-using ProjectGamesGuide.Domain.Entities;
-using ProjectGamesGuide.Domain.Interfaces;
-using ProjectGamesGuide.Infrastructure.Repositories;
-using ProjectPasswordManager.Application.Interfaces;
-using ProjectPasswordManager.Application.Services;
-using ProjectPasswordManager.Domain.Interfaces;
-using ProjectPasswordManager.Infrastructure.Repositories;
-using ProjectPortfolio.Application.DTOs;
-using ProjectPortfolio.Application.Interfaces;
-using ProjectPortfolio.Application.Services;
-using ProjectPortfolio.Domain.Entities;
-using ProjectPortfolio.Domain.Interfaces;
-using ProjectPortfolio.Infrastructure.Repositories;
 using System.Text;
-using Utils;
+using System.Threading.RateLimiting;
 using WebApi.Filters;
+using WebApi.Health;
+using WebApi.Helpers;
+using WebApi.Middleware;
+using WebApiPM.Application.Common;
+using WebApiPM.Application.Interfaces;
+using WebApiPM.Application.Services;
+using WebApiPM.Domain.Interfaces;
+using WebApiPM.Infrastructure.Data;
+using WebApiPM.Infrastructure.Options;
+using WebApiPM.Infrastructure.Repositories;
+using WebApiPM.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
 // ======================================================================
-// SQL Server
+// SQL Server (Dapper)
 // ======================================================================
-builder.Services.AddTransient<IDapperContext>(provider =>
+builder.Services.AddSingleton<IDapperContext>(_ =>
 {
-    //return new DapperContext(builder.Configuration.GetConnectionString("SqlServerWeb")!);
-    return new DapperContext(builder.Configuration.GetConnectionString("SqlServer")!);
+    var connectionString = builder.Environment.IsDevelopment()
+        ? builder.Configuration.GetConnectionString("SqlServer")
+        : builder.Configuration.GetConnectionString("SqlServerWeb");
+
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("La connection string 'SqlServer' (testing) o 'SqlServerWeb' (producción) no está configurada.");
+
+    return new DapperContext(connectionString);
 });
 
 // ======================================================================
-// Filters
+// JWT Configuration
 // ======================================================================
-builder.Services.AddSingleton<ApiKeyFilter>();
+var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
+    ?? throw new InvalidOperationException("La sección 'JWT' no está configurada.");
+builder.Services.AddSingleton(jwtOptions);
 
 // ======================================================================
-// Utils Services
+// Security services
 // ======================================================================
-builder.Services.AddSingleton<EncryptionUtil>();
-builder.Services.AddSingleton<PasswordUtil>();
+builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
+builder.Services.AddSingleton<IAuthTokenService, JwtTokenUtil>();
+builder.Services.AddSingleton<IIpLockoutService>(_ =>
+    new IpLockoutService(new IpLockoutOptions
+    {
+        MaxFailures = 5,
+        FailureWindow = TimeSpan.FromMinutes(15),
+        BlockDuration = TimeSpan.FromMinutes(15)
+    }));
+builder.Services.AddKeyedSingleton<IIpLockoutService>("api-key", (_, _) =>
+    new IpLockoutService(new IpLockoutOptions
+    {
+        MaxFailures = 5,
+        FailureWindow = TimeSpan.FromMinutes(10),
+        BlockDuration = TimeSpan.FromHours(1)
+    }));
+builder.Services.AddScoped<ApiKeyFilter>();
 
 // ======================================================================
-// Auth Repository and Services
+// Health checks (liveness + BD)
+// ======================================================================
+builder.Services.AddHealthChecks().AddCheck<SqlHealthCheck>("sql");
+
+// ======================================================================
+// Repositories
 // ======================================================================
 builder.Services.AddTransient<IAuthUserRepository, AuthUserRepository>();
 builder.Services.AddTransient<IMaeConfigRepository, MaeConfigRepository>();
-builder.Services.AddTransient<IAuthUserService, AuthUserService>();
-builder.Services.AddTransient<IMaeConfigService, MaeConfigService>();
-builder.Services.AddSingleton<JwtTokenUtil>();
-
-// ======================================================================
-// Game Guides Repository and Services
-// ======================================================================
-builder.Services.AddTransient<IUserGoogleRepository, UserGoogleRepository>();
-builder.Services.AddTransient<IRepositoryByUser<UserGuide>, UserGuideRepository>();
-builder.Services.AddTransient<IRepositoryByUser<UserAdventure>, UserAdventureRepository>();
-builder.Services.AddTransient<IRepositoryBase<Game>, GameRepository>();
-builder.Services.AddTransient<IRepositoryBase<Character>, CharacterRepository>();
-builder.Services.AddTransient<IRepositoryBase<Source>, SourceRepository>();
-builder.Services.AddTransient<IRepositoryBase<BackgroundImg>, BackgroundImgRepository>();
-builder.Services.AddTransient<IRepositoryBase<Guide>, GuideRepository>();
-builder.Services.AddTransient<IRepositoryBase<Adventure>, AdventureRepository>();
-builder.Services.AddTransient<IRepositoryBase<AdventureImg>, AdventureImgRepository>();
-
-builder.Services.AddTransient<IGameGuideService, GameGuideService>();
-builder.Services.AddTransient<IUserGoogleService, UserGoogleService>();
-builder.Services.AddTransient<IUserGuideService, UserGuideService>();
-builder.Services.AddTransient<IUserAdventureService, UserAdventureService>();
-builder.Services.AddTransient<IServiceBase<Game>, GameService>();
-builder.Services.AddTransient<IServiceBase<Character>, CharacterService>();
-builder.Services.AddTransient<IServiceBase<Source>, SourceService>();
-builder.Services.AddTransient<IServiceBase<BackgroundImg>, BackgroundImgService>();
-builder.Services.AddTransient<IServiceBase<Guide>, GuideService>();
-builder.Services.AddTransient<IServiceBase<Adventure>, AdventureService>();
-builder.Services.AddTransient<IServiceBase<AdventureImg>, AdventureImgService>();
-
-// Password Manager Repository and Services
-// ======================================================================
-builder.Services.AddTransient<ICoreDataRepository, CoreDataRepository>();
 builder.Services.AddTransient<ICoreUserRepository, CoreUserRepository>();
-builder.Services.AddTransient<ICoreDataService, CoreDataService>();
+builder.Services.AddTransient<ICoreDataRepository, CoreDataRepository>();
+
+// ======================================================================
+// Application services
+// ======================================================================
+builder.Services.AddTransient<IAuthUserService, AuthUserService>();
+builder.Services.AddTransient<IMaeConfigService>(sp =>
+    new MaeConfigService(
+        sp.GetRequiredService<IMaeConfigRepository>(),
+        TimeSpan.FromSeconds(builder.Configuration.GetValue("ApiKeyCache:ExpirationSeconds", 30))));
 builder.Services.AddTransient<ICoreUserService, CoreUserService>();
+builder.Services.AddTransient<ICoreDataService, CoreDataService>();
 
 // ======================================================================
-// Porfolio Repository and Services
+// Controllers con errores de validación estandarizados
 // ======================================================================
-builder.Services.AddTransient<IRepositoryPortfolioBase<Project>, ProjectRepository>();
-builder.Services.AddTransient<IRepositoryPortfolioBase<Language>, LanguageRepository>();
-builder.Services.AddTransient<IRepositoryPortfolioBase<Technology>, TechnologyRepository>();
-builder.Services.AddTransient<IRepositoryPortfolioBase<Pro_Lang>, Pro_Lang_Repository>();
-builder.Services.AddTransient<IRepositoryPortfolioBase<Pro_Tech>, Pro_Tech_Repository>();
-builder.Services.AddTransient<IRepositoryPortfolioBase<UrlGrp>, UrlGrpRepository>();
-builder.Services.AddTransient<IRepositoryPortfolioBase<Url>, UrlRepository>();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var errors = context.ModelState
+                .Where(x => x.Value?.Errors.Count > 0)
+                .ToDictionary(
+                    x => x.Key,
+                    x => x.Value!.Errors.Select(e => e.ErrorMessage).ToArray());
 
-builder.Services.AddTransient<IServicePortfolioBase<Project>, ProjectService>();
-builder.Services.AddTransient<IServicePortfolioBase<Language>, LanguageService>();
-builder.Services.AddTransient<IServicePortfolioBase<Technology>, TechnologyService>();
-builder.Services.AddTransient<IServicePortfolioBase<UrlGrp>, UrlGrpService>();
-builder.Services.AddTransient<IServicePortfolioBase<Url>, UrlService>();
-
-builder.Services.AddTransient<IServicePortfolioBase<ProjectResponse>, PublicProjectsService>();
-builder.Services.AddTransient<IServicePortfolioBase<UrlResponse>, PublicUrlsService>();
+            return new BadRequestObjectResult(
+                ApiResponse.Failure<object>(400, "Validación fallida.", errors, context.HttpContext.TraceIdentifier));
+        };
+    });
 
 // ======================================================================
-// JWT Authentication Configuration
+// Exception handler global (respuesta uniforme ApiResponse)
+// AddProblemDetails habilita UseExceptionHandler() para invocar los
+// IExceptionHandler registrados (GlobalExceptionHandler). No eliminar.
+// ======================================================================
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
+
+// ======================================================================
+// JWT Authentication
 // ======================================================================
 builder.Services
     .AddAuthentication(options =>
@@ -129,94 +130,174 @@ builder.Services
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["JWT:Issuer"],
-            ValidAudience = builder.Configuration["JWT:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["JWT:Key"]!)),
+            ValidIssuer = jwtOptions.Issuer,
+            ValidAudience = jwtOptions.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
             ClockSkew = TimeSpan.Zero
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnChallenge = context =>
+            {
+                context.HandleResponse();
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                context.Response.ContentType = "application/json";
+                return context.Response.WriteAsJsonAsync(
+                    ApiResponse.Failure<object>(401, "No autorizado.", traceId: context.HttpContext.TraceIdentifier));
+            }
         };
     });
 
 builder.Services.AddAuthorization();
 
 // ======================================================================
-// Add CORS Policy
+// CORS
 // ======================================================================
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: "_allowedOrigins",
-        policy =>
-        {
-            policy.WithOrigins(
-                "http://localhost:4200",
-                "http://127.0.0.1:4200",
-                "http://localhost:3000",
-                "http://127.0.0.1:3000"
-            )
+    options.AddPolicy("_allowedOrigins", policy =>
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? Array.Empty<string>();
+
+        if (allowedOrigins.Length == 0)
+            throw new InvalidOperationException("La sección 'Cors:AllowedOrigins' no está configurada.");
+
+        policy.WithOrigins(allowedOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials()
-            .SetIsOriginAllowed(_ => true);
-        });
+            .AllowCredentials();
+    });
 });
 
 // ======================================================================
-// Swagger Configuration with JWT
+// Rate limiting (protección contra ataques)
+// ======================================================================
+var rateLimitPermit = builder.Configuration.GetValue("RateLimit:PermitLimit", 25);
+var rateLimitWindow = TimeSpan.FromSeconds(builder.Configuration.GetValue("RateLimit:WindowSeconds", 60));
+var loginRateLimitPermit = builder.Configuration.GetValue("RateLimit:LoginPermitLimit", 5);
+var loginRateLimitWindow = TimeSpan.FromSeconds(builder.Configuration.GetValue("RateLimit:LoginWindowSeconds", 60));
+var registerRateLimitPermit = builder.Configuration.GetValue("RateLimit:RegisterPermitLimit", 5);
+var registerRateLimitWindow = TimeSpan.FromSeconds(builder.Configuration.GetValue("RateLimit:RegisterWindowSeconds", 60));
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy("client_25_per_minute", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ClientIpResolver.Resolve(context),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = rateLimitPermit,
+                Window = rateLimitWindow,
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("login_5_per_minute", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ClientIpResolver.Resolve(context),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = loginRateLimitPermit,
+                Window = loginRateLimitWindow,
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("register_5_per_minute", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ClientIpResolver.Resolve(context),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = registerRateLimitPermit,
+                Window = registerRateLimitWindow,
+                QueueLimit = 0
+            }));
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            ApiResponse.Failure<object>(429, "Demasiadas solicitudes. Intenta nuevamente en un minuto.",
+                traceId: context.HttpContext.TraceIdentifier),
+            cancellationToken);
+    };
+});
+
+// ======================================================================
+// Swagger con JWT
 // ======================================================================
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "Projects API",
+        Title = "WebApiCore API",
         Version = "v1",
-        Description = "API with JWT Authentication"
+        Description = "API CORE + AUTH con autenticación JWT"
     });
-    // Configuraci�n para JWT en Swagger
+
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Description = "JWT Authorization header usando el esquema Bearer. Ejemplo: \"Authorization: Bearer {token}\"",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey,
         Scheme = "Bearer",
         BearerFormat = "JWT"
     });
-    // Filtro personalizado para aplicar seguridad solo a endpoints con [Authorize]
-    c.OperationFilter<AuthorizeOperationFilter>();
-});
 
-builder.Services.AddControllers();
-//builder.Services.AddOpenApi(); //https://aka.ms/aspnet/openapi
+    c.OperationFilter<AuthorizeOperationFilter>();
+    c.OperationFilter<ApiKeyOperationFilter>();
+});
 
 var app = builder.Build();
 
 // ======================================================================
-// Add Swagger UI
+// Pipeline HTTP
+// ======================================================================
+app.UseExceptionHandler();
+app.UseHttpsRedirection();
+
+// ======================================================================
+// Security headers (protección básica de respuesta; no aplica a Swagger)
+// ======================================================================
+app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseRateLimiter();
+
+// ======================================================================
+// SwaggerUI with OpenAPI
 // ======================================================================
 app.UseSwagger();
-app.UseSwaggerUI(c =>
+app.UseSwaggerUI(options =>
 {
-    c.SwaggerEndpoint("./swagger/v1/swagger.json", "Projects API v1");
-    c.RoutePrefix = string.Empty;
-    c.DisplayRequestDuration();
+    options.RoutePrefix = string.Empty;
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "WebApi v1");
+    options.DisplayRequestDuration();
 });
 
-// ======================================================================
-// Cors Middleware
-// ======================================================================
 app.UseCors("_allowedOrigins");
-
-// ======================================================================
-// Authentication and Authorization Middleware
-// ======================================================================
 app.UseAuthentication();
-
-//if (app.Environment.IsDevelopment()) // Configure the HTTP request pipeline.
-//{
-//    app.MapOpenApi();
-//}
-
-app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHealthChecks("/health");
+
+// ======================================================================
+// 404 uniforme (ApiResponse)
+// ======================================================================
+app.MapFallback(async context =>
+{
+    context.Response.StatusCode = StatusCodes.Status404NotFound;
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsJsonAsync(
+        ApiResponse.Failure<object>(404, "Recurso no encontrado.", traceId: context.TraceIdentifier));
+});
+
 app.Run();
+
+public partial class Program { }
