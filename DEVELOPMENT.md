@@ -7,7 +7,8 @@ Documento de decisiones y estado de la API consolidada `.NET 9` con Clean Archit
 - **Vigente**: `WebApi` (host/composition root) + `WebApiPM.Domain` + `WebApiPM.Application` + `WebApiPM.Infrastructure`. Es la API actual, más SENIOR y robusta que las versiones anteriores.
 - **Build**: 0 errores / 0 warnings.
 - **Swagger**: funcionando en la raíz (`RoutePrefix = string.Empty`) con Swashbuckle 6.6.2 / OpenApi 1.x.
-- **Tests**: pendientes (por ejecutar contra `db_testing`).
+- **Tests**: pendientes (por ejecutar contra `db_testing`). Tests en `WebApiPM.Tests`.
+- **Utils**: existe como proyecto pero no usado actualmente; reservado para componentes compartidos futuros.
 - **Auditoría de código**: realizada. Un hallazgo de seguridad pendiente (spoofing de IP) y varios menores, documentados en [Auditoría](#auditoría-hallazgos-pendientes).
 
 ## Arquitectura

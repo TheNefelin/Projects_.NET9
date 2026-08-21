@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -261,6 +262,12 @@ var app = builder.Build();
 // ======================================================================
 // Pipeline HTTP
 // ======================================================================
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    ForwardedForHeaderName = "X-Forwarded-For",
+    ForwardedProtoHeaderName = "X-Forwarded-Proto"
+});
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 
