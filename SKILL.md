@@ -1,6 +1,6 @@
 # SKILL: .NET (C#) — Patrón Senior para APIs REST (transversal)
 
-Guía de referencia para construir APIs REST en **.NET (ASP.NET Core) + Dapper + SQL Server** siguiendo una arquitectura y convenciones senior validadas en producción (`WebApiCore`, Clean Architecture, portada a .NET 10). Es **transversal**: los ejemplos son genéricos (auth, CRUD, manejo de errores, configuración, seguridad, tests) y aplican a cualquier dominio. Cubre también buenas prácticas para clientes **MAUI** (MVVM) porque comparten las mismas reglas de C#, seguridad y testing.
+Guía de referencia para construir APIs REST en **.NET (ASP.NET Core) + Dapper + SQL Server** siguiendo una arquitectura y convenciones senior validadas en producción (Clean Architecture, portada a .NET 10). Es **transversal**: los ejemplos son genéricos (auth, CRUD, manejo de errores, configuración, seguridad, tests) y aplican a cualquier dominio. Cubre también buenas prácticas para clientes **MAUI** (MVVM) porque comparten las mismas reglas de C#, seguridad y testing.
 
 Este archivo es un **skill**: se lee para replicar el patrón en cualquier proyecto .NET nuevo. No es una receta dogmática; es la lista de decisiones que convierten un CRUD simple en un backend mantenible, seguro y desplegable.
 
@@ -251,7 +251,7 @@ Costo: el éxito va envuelto y no es un estándar interoperable.
 
 **Anti-patrón**: mezclar contratos — unos endpoints con DTO directo, otros con `string` de error, otros con `ProblemDetails` crudo. El frontend termina con `if (status === 400) ... else if (typeof res === 'string') ...`.
 
-> **Nota**: `WebApiCore` (repo de referencia) usa el envelope por decisión histórica (contrato ya consumido por su cliente MAUI). Es válido, pero **no** es el patrón por defecto recomendado en proyectos nuevos.
+> **Nota**: el envelope `ApiResponse<T>` puede existir en repositorios existentes por decisión histórica (contrato ya consumido por un cliente legacy, p.ej. MAUI). Es válido cuando ese contrato ya existe, pero **no** es el patrón por defecto recomendado en proyectos nuevos.
 
 ---
 
@@ -305,7 +305,7 @@ builder.Services.AddControllers()
 
 **Regla**: el mensaje de 500 es genérico para el cliente; el detalle real va al log. Nunca `ex.Message` en una respuesta 500.
 
-> Si el proyecto eligió el envelope `ApiResponse<T>` (sección 5), estos handlers devuelven `ApiResponse.Failure`/`Success` en lugar de `ProblemDetails` — como hace `WebApiCore`. El patrón de centralización es el mismo; solo cambia el cuerpo.
+> Si el proyecto eligió el envelope `ApiResponse<T>` (sección 5), estos handlers devuelven `ApiResponse.Failure`/`Success` en lugar de `ProblemDetails`. El patrón de centralización es el mismo; solo cambia el cuerpo.
 
 ---
 
@@ -774,7 +774,7 @@ Las mismas reglas de C# y seguridad aplican al frontend MAUI. Anti-patrones que 
 
 ## 16. Referencias del patrón validado
 
-- **Repo de referencia**: `WebApiCore` (Clean Architecture + Dapper + JWT + ApiKey + rate limit + lockout + envelope + security headers + health) — portado a .NET 10 y operativo, con 64/64 tests y verificación runtime. Usa el envelope `ApiResponse<T>` por decisión histórica (contrato consumido por su cliente); en proyectos nuevos se recomienda DTO + `ProblemDetails`.
-- **Migration .NET 10**: `PasswordManager_.NET10` — incluye `dotnet test --project` (MTP), xUnit v3, tests HTTP con `WebApplicationFactory`.
+- **Patrón validado**: Clean Architecture + Dapper + JWT + ApiKey + rate limit + lockout + envelope/ProblemDetails + security headers + health checks, con tests de integración contra BD real y tests HTTP con `WebApplicationFactory`. En proyectos nuevos se recomienda DTO + `ProblemDetails`; el envelope `ApiResponse<T>` queda reservado a contratos legacy ya consumidos.
+- **Comandos de test por versión de SDK**: `dotnet test` normal en SDK ≤ .NET 9; en SDK .NET 10 (modo MTP) `dotnet test --project <csproj>`.
 - **Config de despliegue**: connection string de producción por entorno, fail-fast, CORS por allow-list.
 - **Documentación**: ver `DEVELOPMENT.md` del proyecto para decisiones de diseño y alternativas descartadas.

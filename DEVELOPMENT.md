@@ -1,14 +1,14 @@
-# DEVELOPMENT - WebApiCore (migración)
+# DEVELOPMENT - WebApi (API consolidada)
 
-Documento de decisiones y avance de la migración de `WebApi`/`ProjectAuth`/`ProjectPasswordManager` hacia una única API `WebApiCore` (.NET 9) con Clean Architecture y SOLID.
+Documento de decisiones y estado de la API consolidada `.NET 9` con Clean Architecture y SOLID.
 
 ## Estado
 
-- [x] Fase 1: estructura de proyectos, migración de código (Domain, Application, Infrastructure, host) y build en verde.
-- [x] Fase 2: tests de integración contra `db_testing` (Docker). Ejecutados: 20/20 superados.
-- [x] Fase 3: verificación en runtime. Flujo completo verificado contra `db_testing` (register → login → register-password → get-iv → CRUD /api/core/*) con ApiKey y JWT.
-
-Los proyectos originales (`WebApi`, `ProjectAuth`, `ProjectPasswordManager`, etc.) se conservan intactos durante la migración.
+- **Vigente**: `WebApi` (host/composition root) + `WebApiPM.Domain` + `WebApiPM.Application` + `WebApiPM.Infrastructure`. Es la API actual, más SENIOR y robusta que las versiones anteriores.
+- **Build**: 0 errores / 0 warnings.
+- **Swagger**: funcionando en la raíz (`RoutePrefix = string.Empty`) con Swashbuckle 6.6.2 / OpenApi 1.x.
+- **Tests**: pendientes (por ejecutar contra `db_testing`).
+- **Auditoría de código**: realizada. Un hallazgo de seguridad pendiente (spoofing de IP) y varios menores, documentados en [Auditoría](#auditoría-hallazgos-pendientes).
 
 ## Arquitectura
 
@@ -17,17 +17,13 @@ Los proyectos originales (`WebApi`, `ProjectAuth`, `ProjectPasswordManager`, etc
 Las dependencias apuntan hacia adentro (Domain no depende de nada):
 
 ```
-WebApiCore ──┬──> WebApiCore.Application ──> WebApiCore.Domain
-             └──> WebApiCore.Infrastructure ──> WebApiCore.Domain
-                                     └──> WebApiCore.Application
-WebApiCore.Tests ──> WebApiCore.Application
-                 └──> WebApiCore.Infrastructure
+WebApi ──> WebApiPM.Infrastructure ──> WebApiPM.Application ──> WebApiPM.Domain
 ```
 
-- **Domain**: entidades, interfaces de repositorio y modelos (sin dependencias).
-- **Application**: DTOs, `ApiResponse<T>`, interfaces de servicios y casos de uso.
-- **Infrastructure**: `DapperContext`, repositorios, `PasswordHasher`, `JwtTokenUtil`, `JwtOptions`.
-- **WebApiCore**: composition root (DI), controllers, filters, middleware.
+- **WebApiPM.Domain**: entidades, interfaces de repositorio y modelos (sin dependencias).
+- **WebApiPM.Application**: DTOs, `ApiResponse<T>`, interfaces de servicios y casos de uso.
+- **WebApiPM.Infrastructure**: `DapperContext`, repositorios, `PasswordHasher`, `JwtTokenUtil`, `IpLockoutService`, `JwtOptions`, `IpLockoutOptions`.
+- **WebApi**: composition root (DI), controllers, filters, middleware, health checks.
 
 ## Decisiones técnicas
 
@@ -45,59 +41,93 @@ WebApiCore.Tests ──> WebApiCore.Application
 
 ### 2. Los servicios no tragan excepciones
 
-**Decisión**: eliminar los `try/catch` que envolvían cada operación y devolvían 500 con `ex.Message`/`ex.ToString()`.
+**Decisión**: los casos de uso no capturan excepciones; los errores inesperados se propagan al `IExceptionHandler`, que responde con mensajes genéricos y registra la excepción real en logs.
 
-**Motivación**: fuga de detalles internos y el `GlobalExceptionHandler` del proyecto original nunca se ejecutaba porque las excepciones se capturaban en la capa de servicios. Ahora los errores inesperados se propagan al `IExceptionHandler`, que responde con mensajes genéricos y registra la excepción real en logs.
+**Motivación**: evita la fuga de detalles internos hacia el cliente y garantiza que el `GlobalExceptionHandler` sea quien controle el error 500.
 
 ### 3. DIP: dependencias por interfaz
 
-**Decisión**: `PasswordUtil` y `JwtTokenUtil` (concretas) se sustituyen por las interfaces `IPasswordHasher` e `IAuthTokenService` definidas en Application e implementadas en Infrastructure.
+**Decisión**: los casos de uso dependen de interfaces (`IPasswordHasher`, `IAuthTokenService`, `IIpLockoutService`, repositorios) definidas en Application/Domain e implementadas en Infrastructure.
 
-**Motivación**: los casos de uso ya no dependen de implementaciones concretas de seguridad; se pueden intercambiar sin tocar Application.
+**Motivación**: intercambiabilidad sin tocar Application.
 
 ### 4. Configuración JWT con Options pattern
 
-**Decisión**: la sección `JWT` de `appsettings.json` se vincula al POCO `JwtOptions` (Infrastructure) y se registra como singleton en el host.
+**Decisión**: la sección `JWT` de `appsettings.json` se vincula al POCO `JwtOptions` (Infrastructure) y se registra como singleton en el host. Si la sección no existe, falla el arranque con mensaje claro (fail-fast).
 
-**Motivación**: elimina la construcción manual de `JwtConfig` en el controller y la mezcla de claves de configuración (`Jwt:` vs `JWT:`) que existía en el original. Se registra la instancia como singleton para evitar agregar el paquete `Microsoft.Extensions.Options` a Infrastructure.
+**Motivación**: configuración centralizada, tipada y validada en tiempo de arranque.
 
-### 5. Correcciones de seguridad y consistencia
+### 5. Connection strings: `SqlServer` (testing) y `SqlServerWeb` (producción)
 
-- **`CoreDataService`**: el bloque de validación de sesión (GetCoreUserAsync + 401) estaba duplicado en 4 métodos; se extrajo a `GetValidSessionAsync`.
-- **Operaciones de escritura**: `CoreDataRepository` usaba `QueryAsync` para INSERT/UPDATE/DELETE; se reemplazó por `ExecuteAsync` (semántica correcta) y `QueryFirstAsync` para obtener el `Data_Id` del INSERT.
-- **Fuga de datos del usuario**: `UpdateAsync`/`DeleteAsync` usan el `User_Id` de la sesión validada, no el del request.
-- **Hasher**: constantes extraídas (salt 16, key 32, iteraciones 100k PBKDF2-HMACSHA256).
+**Decisión**: la connection string se resuelve por entorno en el composition root. En `Development` se usa `SqlServer`; en cualquier otro entorno se usa `SqlServerWeb`. Ambas son obligatorias: si la clave requerida no existe se lanza `InvalidOperationException`.
 
-### 6. Connection strings: `SqlServer` (testing) y `SqlServerWeb` (producción)
+### 6. Rate limiting (protección contra ataques)
 
-**Decisión**: la connection string se resuelve por entorno en el composition root. En `Development` se usa `SqlServer`; en cualquier otro entorno se usa `SqlServerWeb`. Ambas son obligatorias: si la clave requerida no existe se lanza `InvalidOperationException` con mensaje claro.
+**Decisión**: se usa el rate limiter integrado de ASP.NET Core (`AddRateLimiter`/`UseRateLimiter`, sin paquete adicional) con tres políticas de ventana fija, todas configurables en `appsettings.json`:
 
-**Motivación**: separar la BD de pruebas (`db_testing`) de la de producción. El valor de `SqlServerWeb` se tomó de la API original (`WebApi/appsettings.json`) y en `db_testing` ambas apuntan al mismo servidor por el momento.
+| Política | Aplicada a | Default |
+|----------|-----------|---------|
+| `client_25_per_minute` | `AuthController`, `CoreController` (nivel de clase) | 25 req / 60s |
+| `login_5_per_minute` | `AuthController.Login` (sobreescribe la de clase) | 5 req / 60s |
+| `register_5_per_minute` | `AuthController.Register` (sobreescribe la de clase) | 5 req / 60s |
 
-### 7. Rate limiting (protección contra ataques)
+- `QueueLimit = 0`: no hay cola, se rechaza de inmediato.
+- Particionado por cliente (`ClientIpResolver`): header `X-Forwarded-For` (primer valor) si viene, con fallback a `RemoteIpAddress`.
+- Los rechazos devuelven 429 en el mismo envelope `ApiResponse` (vía `OnRejected`), consistente con el resto de la API.
 
-**Decisión**: se usa el rate limiter integrado de ASP.NET Core (`AddRateLimiter`/`UseRateLimiter`, sin paquete adicional) con la política `client_25_per_minute` aplicada a `AuthController` y `CoreController`.
+### 7. IP lockout separado para login y ApiKey
 
-**Parámetros**: `FixedWindowLimiter` con `PermitLimit = 25` y `Window = 60s`, configurables en `appsettings.json` (`RateLimit:PermitLimit` / `RateLimit:WindowSeconds`). `QueueLimit = 0`: no hay cola, se rechaza de inmediato.
+**Decisión**: se implementa `IpLockoutService` (en memoria, `ConcurrentDictionary` + `TimeProvider`) con dos instancias independientes:
+- **Login/Register**: `MaxFailures = 5`, ventana 15 min, bloqueo 15 min.
+- **ApiKey**: servicio keyed (`"api-key"`), `MaxFailures = 5`, ventana 10 min, bloqueo 1 hora.
 
-**Particionado por cliente**: la clave es el header `X-Forwarded-For` (primer valor) si viene — necesario en hosting compartido con reverse proxy, donde `RemoteIpAddress` es la IP del proxy — y cae a `RemoteIpAddress` si no viene.
+Los fallos incrementan el contador; el éxito resetea; `GetRemainingBlockTime` permite responder `Retry-After` en el 429 del filter de ApiKey.
 
-**Respuesta**: los rechazos devuelven 429 en el mismo envelope `ApiResponse` (vía `OnRejected`), consistente con el resto de la API.
+**Motivación**: dos políticas distintas porque la ApiKey es un secreto compartido estático (bloqueo más severo) y las credenciales de usuario son por-cuenta (bloqueo moderado).
 
-**Motivación**: limitar fuerza bruta/abuso sin afectar el uso normal (API de pocos usuarios). Verificado en runtime: pasan 25 requests y el 26.º devuelve 429.
+### 8. Caché de ApiKey con TTL configurable
 
-### 8. CORS configurable y reversión de la caché de ApiKey
+**Decisión**: `MaeConfigService` cachea la ApiKey de `Mae_Config` en memoria con TTL de 30s (`ApiKeyCache:ExpirationSeconds`), sincronizado con `Lock` y usando `TimeProvider`. Comparación de valores con `CryptographicOperations.FixedTimeEquals` (tiempo constante).
 
-**CORS**: los orígenes permitidos se movieron a `appsettings.json` (`Cors:AllowedOrigins`). Se eliminó `SetIsOriginAllowed(_ => true)` (heredado del original) que **anulaba** la allow-list y permitía credenciales desde cualquier origen. Ahora la allow-list se aplica de verdad y se puede editar en producción sin recompilar. CORS solo aplica a navegadores; no afecta clientes nativos (MAUI, Postman, server-to-server).
+**Motivación**: reduce el round-trip a BD en cada request sin dejar una ventana larga ante rotación de la clave (30s).
 
-**Caché de ApiKey**: se implementó un `IMemoryCache` en `ApiKeyFilter` y luego **se revirtió por decisión** (regla 14, no sobreingeniería): la API tiene pocos usuarios y no es masiva; validar la ApiKey contra BD por request no es un cuello de botella real. La caché agregaba estado en memoria y una ventana de 5 min ante rotación de clave sin beneficio concreto. Se mantiene la validación directa contra BD.
+### 9. Security headers solo en respuestas JSON
 
-## Pendiente de revisión / deuda conocida
+**Decisión**: `SecurityHeadersMiddleware` aplica `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y `Content-Security-Policy` únicamente cuando la respuesta es JSON (`ContentType` contiene `json`), vía `Response.OnStarting`.
 
-- **Tests de integración**: no usan el SP ni `Mae_Config` en el setup (INSERT directo en `Auth_Users`), por lo que no verifican `IsEnableRegister`; el SP se prueba implícitamente solo en `AuthRepositoryTests.CreateUserAsync_WithValidData_ReturnsSuccess`. Requieren `db_testing` con esquema (Auth_Users, Auth_Profiles, Mae_Config, PM_CoreData y SP Auth_Register).
-- **`SqlServerWeb`**: apunta a `db_testing` como placeholder; confirmar la connection string real de producción antes de desplegar.
-- **`JWT:Key`**: la clave del repo es pública; reemplazarla por un secreto único en el `appsettings.json` de producción.
+**Motivación**: protege los endpoints de la API sin bloquear la UI y los assets de Swagger. La versión previa (excluir por path) era frágil y rompió el renderizado de Swagger en la raíz.
+
+### 10. Swagger con Swashbuckle y OpenApi 1.x
+
+**Decisión**: se usa **solo Swashbuckle** (`AddSwaggerGen`/`UseSwagger`/`UseSwaggerUI`) con `RoutePrefix = string.Empty` (UI en la raíz) y `SwaggerEndpoint("/swagger/v1/swagger.json")`. No se usa el `AddOpenApi()` nativo de .NET 9 (servía `/openapi/v1.json` y mezclaba dos documentos).
+
+**Motivación**: un único documento Swagger. Los operation filters (`AuthorizeOperationFilter`, `ApiKeyOperationFilter`) usan la sintaxis de OpenApi 1.x (`.Type = "string"`, `OpenApiReference`), no la 2.x (`JsonSchemaType`, `IOpenApiParameter`), que no existe en Swashbuckle 6.6.2.
+
+### 11. Correcciones de seguridad y consistencia
+
+- **`CoreDataService`**: el bloque de validación de sesión (GetCoreUserAsync + 401) se extrajo a `GetValidSessionAsync`.
+- **Operaciones de escritura**: `CoreDataRepository` usa `ExecuteAsync` para INSERT/UPDATE/DELETE (semántica correcta) y `QueryFirstAsync` para obtener el `Data_Id` del INSERT.
+- **Fuga de datos del usuario**: `UpdateAsync`/`DeleteAsync` usan el `User_Id` de la sesión validada (claim JWT), no el del request.
+- **Hasher**: PBKDF2-HMACSHA256 con salt 16 bytes, key 32 bytes y 100k iteraciones (`PasswordHasher`).
+- **CORS**: orígenes permitidos en `appsettings.json` (`Cors:AllowedOrigins`); la allow-list se aplica realmente (se eliminó `SetIsOriginAllowed(_ => true)` que la anulaba). Solo afecta a navegadores; no a clientes nativos (MAUI) ni server-to-server.
+
+## Auditoría (hallazgos pendientes)
+
+### Crítico (pendiente de corrección)
+
+- **Spoofing de IP en `ClientIpResolver`** (`WebApi/Helpers/ClientIpResolver.cs`): confía en el header `X-Forwarded-For` sin `UseForwardedHeaders` ni `KnownProxies`/`KnownNetworks`. Un atacante puede evadir el rate limiting y el IP lockout inventando un XFF distinto por request, o provocar un bloqueo de IP ajena (DoS dirigido).
+  - **Fix propuesto (no aplicado)**: `app.UseForwardedHeaders` con `ForwardedHeaders.XForwardedFor | XForwardedProto` y `KnownProxies` configurables (loopback en dev, proxy real en producción); simplificar `ClientIpResolver` para usar `Connection.RemoteIpAddress` (el middleware lo actualiza solo con IPs confiables). Pendiente de autorización.
+
+### Menores
+
+- **`NewSqlToken`** (`AuthUserRepository.cs`): si el `UPDATE ... OUTPUT` no afecta filas, devuelve `Guid.Empty` y el login "exitoso" entrega un `SqlToken` inválido silenciosamente. Conviene validar el resultado.
+- **`MaeConfigService.GetCachedApiKeyAsync`**: al expirar el TTL pueden darse varias consultas simultáneas a BD (thundering herd). Impacto bajo (1 fila), pero un `Lazy<T>` resolvería la semántica exacta.
+- **`ApiResponse.Success<object>(null!, ...)`** en `CoreDataService.DeleteAsync`: el envelope serializa `Data: null`; el cliente debe tolerarlo.
+- **Logging de PII**: se registra el email completo en login/register. Aceptable hoy; revisar si se incorpora un sink de almacenamiento (Serilog) para no acumular PII sin anonimizar.
+- **SPs no verificables desde el repo**: `Auth_Register` y el mapeo a `SqlResponse` dependen de la BD (`SqlServer.sql`). Verificar el contrato del SP antes de desplegar.
 
 ## Próximos pasos
 
-1. Antes de producción: confirmar `SqlServerWeb` real, reemplazar `JWT:Key`, ajustar `Cors:AllowedOrigins` y `RateLimit` en el `appsettings.json` de producción.
+1. Aplicar el fix de spoofing de IP (`UseForwardedHeaders` + `ClientIpResolver`), pendiente de autorización.
+2. Tests de integración contra `db_testing` (esquema: Auth_Users, Auth_Profiles, Mae_Config, PM_CoreData y SP Auth_Register).
+3. Config de producción real: `SqlServerWeb`, `JWT:Key` secreta, `Cors:AllowedOrigins` y `RateLimit` en el `appsettings.json` de producción.

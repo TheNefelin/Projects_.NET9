@@ -14,13 +14,17 @@ public class SecurityHeadersMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!context.Request.Path.StartsWithSegments("/swagger"))
+        context.Response.OnStarting(() =>
         {
-            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-            context.Response.Headers["X-Frame-Options"] = "DENY";
-            context.Response.Headers["Referrer-Policy"] = ReferrerPolicy;
-            context.Response.Headers["Content-Security-Policy"] = ContentSecurityPolicy;
-        }
+            if (context.Response.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                context.Response.Headers["X-Frame-Options"] = "DENY";
+                context.Response.Headers["Referrer-Policy"] = ReferrerPolicy;
+                context.Response.Headers["Content-Security-Policy"] = ContentSecurityPolicy;
+            }
+            return Task.CompletedTask;
+        });
 
         await _next(context);
     }

@@ -237,9 +237,9 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "WebApiCore API",
+        Title = "WebApi",
         Version = "v1",
-        Description = "API CORE + AUTH con autenticación JWT"
+        Description = "API + AUTH con autenticación JWT"
     });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
