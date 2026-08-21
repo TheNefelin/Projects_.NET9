@@ -278,7 +278,7 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseRateLimiter();
 
 // ======================================================================
-// SwaggerUI with OpenAPI
+// Swagger
 // ======================================================================
 app.UseSwagger();
 app.UseSwaggerUI(options =>
