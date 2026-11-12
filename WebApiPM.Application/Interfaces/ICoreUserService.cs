@@ -5,6 +5,7 @@ namespace WebApiPM.Application.Interfaces;
 
 public interface ICoreUserService
 {
-    Task<ApiResponse<CoreUserIV>> RegisterCoreUserPasswordAsync(Guid userId, CoreUserPassword coreUserRequest, CancellationToken cancellationToken);
+    Task<ApiResponse<CoreUserIV>> RegisterCoreUserPasswordAsync(Guid userId, CoreUserPasswordCreate coreUserRequest, CancellationToken cancellationToken);
     Task<ApiResponse<CoreUserIV>> GetCoreUserIVAsync(Guid userId, CoreUserPassword coreUserRequest, CancellationToken cancellationToken);
+    Task<ApiResponse<CoreUserChangeResponse>> ChangeCorePasswordAsync(Guid userId, ChangeCorePasswordRequest request, CancellationToken cancellationToken);
 }

@@ -5,7 +5,7 @@ namespace WebApiPM.Application.Interfaces;
 
 public interface ICoreDataService
 {
-    Task<ApiResponse<IEnumerable<CoreDataResponse>>> GetAllAsync(Guid userId, CoreUserRequest coreUser, CancellationToken cancellationToken);
+    Task<ApiResponse<IEnumerable<CoreDataResponse>>> GetAllAsync(Guid userId, Guid sqlToken, CancellationToken cancellationToken);
     Task<ApiResponse<CoreDataResponse>> InsertAsync(Guid userId, CoreDataRequest coreData, CancellationToken cancellationToken);
     Task<ApiResponse<CoreDataResponse>> UpdateAsync(Guid userId, CoreDataRequest coreData, CancellationToken cancellationToken);
     Task<ApiResponse<object>> DeleteAsync(Guid userId, CoreDataDelete coreDataDelete, CancellationToken cancellationToken);

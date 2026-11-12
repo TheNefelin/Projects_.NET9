@@ -1,10 +1,8 @@
-# SKILL: .NET (C#) — Patrón Senior para APIs REST (transversal)
+# SKILL: .NET (C#) — Patrón Senior (transversal)
 
-Guía de referencia para construir APIs REST en **.NET (ASP.NET Core) + Dapper + SQL Server** siguiendo una arquitectura y convenciones senior validadas en producción (Clean Architecture, portada a .NET 10). Es **transversal**: los ejemplos son genéricos (auth, CRUD, manejo de errores, configuración, seguridad, tests) y aplican a cualquier dominio. Cubre también buenas prácticas para clientes **MAUI** (MVVM) porque comparten las mismas reglas de C#, seguridad y testing.
+Guía de referencia para construir APIs REST en **.NET (ASP.NET Core) + Dapper + SQL Server** siguiendo una arquitectura y convenciones senior validadas en producción (`WebApiCore`, Clean Architecture). Es **transversal**: los ejemplos son genéricos (auth, CRUD, manejo de errores, configuración) y aplican a cualquier dominio. Cubre también buenas prácticas para clientes **MAUI** (MVVM) porque comparten las mismas reglas de C#, seguridad y testing.
 
 Este archivo es un **skill**: se lee para replicar el patrón en cualquier proyecto .NET nuevo. No es una receta dogmática; es la lista de decisiones que convierten un CRUD simple en un backend mantenible, seguro y desplegable.
-
-> Compatibilidad: .NET 8/9/10. Donde hay diferencias de API o de comportamiento entre versiones, se marca explícitamente (p.ej. `dotnet test` en .NET 10, Swashbuckle 10/OpenApi 2.x).
 
 ---
 
@@ -15,23 +13,16 @@ Porque resuelve los problemas que matan a las APIs .NET cuando crecen, con decis
 | Decisión | Problema que resuelve |
 |----------|----------------------|
 | **Clean Architecture por capas** (`Domain` → `Application` → `Infrastructure` → `API`) | Dependencias en una sola dirección; la API no conoce repositorios, los servicios no conocen Dapper. Cambiar de ORM o de BD no toca la capa de aplicación |
-| **Contrato de respuestas consistente** | Por defecto éxito = DTO directo y error = `ProblemDetails` (RFC 9457). Envelope `ApiResponse<T>` solo si hay requisito explícito (contrato único). El error real es mezclar contratos |
-| **`GlobalExceptionHandler` → 500 genérico** | El detalle real de la excepción va al log, nunca al cliente. Sin fuga de stack traces ni internos |
+| **Envelope uniforme `ApiResponse<T>`** | Toda respuesta (éxito y error) tiene el mismo contrato `{isSuccess, statusCode, message, data, errors}`. El frontend tiene un solo patrón de consumo |
+| **`GlobalExceptionHandler` → 500 genérico + `ProblemDetails`** | El detalle real de la excepción va al log, nunca al cliente. Sin fuga de stack traces ni internos |
 | **Fail-fast de configuración** | Config inválida (connection string faltante, CORS vacío, JWT sin sección) → excepción al arrancar, no fallas en runtime difíciles de diagnosticar |
-| **Connection string por entorno** (`Development` → local, resto → producción) | El mismo código corre en local y en producción sin tocar el repositorio; la config correcta la decide el entorno |
-| **JWT identifica + `ApiKey` global** | Separa "quién puede llamar a la API" (ApiKey del origen, validada contra BD/config) de "quién es el usuario" (JWT) |
-| **Rate limiting particionado por IP + políticas por endpoint sensible** | Protección de fuerza bruta que no bloquea a todos los usuarios por igual y endurece los puntos críticos (login/register) |
-| **Lockout por IP con `TimeProvider`** | Bloqueo temporal tras N fallos (ventana + duración configurables), testeable sin timers reales |
+| **Connection string por entorno** (`Development` → `SqlServer`, resto → `SqlServerWeb`) | El mismo código corre en local y en producción sin tocar el repositorio; la config correcta la decide el entorno |
+| **JWT identifica + `ApiKey` global** | Separa "quién puede llamar a la API" (ApiKey del origen, validada contra BD) de "quién es el usuario" (JWT) |
+| **Rate limiting por cliente (`X-Forwarded-For` → IP)** | Protección de fuerza bruta que no bloquea a todos los usuarios por igual |
 | **Contraseñas con PBKDF2 (KDF)** | Hash seguro con salt e iteraciones configurables; nunca almacenar texto plano ni MD5/SHA simples |
-| **Dapper + decisión explícita sobre dónde vive la lógica** | Consultas de lectura en C#; escrituras críticas (p.ej. registro) vía SP con contrato `IsSuccess/StatusCode/Message`. Dapper es simple y sin magic strings del ORM |
-| **JWT con `JsonWebTokenHandler`** | Handler moderno y rendimiento superior; el legado `JwtSecurityTokenHandler` solo aporta deuda |
-| **Comparaciones secretas en tiempo constante** | `CryptographicOperations.FixedTimeEquals` para ApiKey y credenciales → inmune a timing attacks |
-| **`CancellationToken` propagado en toda la cadena** | Requests cancelados no dejan operaciones colgadas en BD ni hilos ocupados |
-| **Auditoría de eventos de seguridad** | Login/register (y fallos) se loguean con IP y email → trazabilidad de ataques |
-| **Security headers en respuestas de API** | `nosniff`, `X-Frame-Options`, `Referrer-Policy`, CSP → endurecen el navegador/cliente |
-| **Health check** (`/health` con chequeo de BD) | Liveness/readiness sin instrumentación externa |
-| **Tests de integración con BD real + tests HTTP con `WebApplicationFactory`** | Validan el flujo completo (DTO → SP → respuesta) contra la base real y el pipeline HTTP completo, no contra mocks que mienten |
-| **Sin secretos en el código** | Connection strings, claves JWT y ApiKeys van en configuración/secrets del entorno (user-secrets en dev, variables de entorno en prod), nunca hardcodeadas ni en el repo |
+| **Stored Procedures + Dapper** | La lógica de datos vive en la BD (reutilizable, auditable); Dapper es simple y sin magic strings del ORM |
+| **Tests de integración con BD real** | Validan el flujo completo (DTO → SP → respuesta) contra la base real, no contra mocks que mienten |
+| **Sin secretos en el código** | Connection strings, claves JWT y ApiKeys van en configuración/secrets del entorno, nunca hardcodeadas ni en el repo |
 
 ---
 
@@ -40,53 +31,52 @@ Porque resuelve los problemas que matan a las APIs .NET cuando crecen, con decis
 | Capa | Tecnología | Nota |
 |------|-----------|------|
 | API | ASP.NET Core (net8/net9/net10 según contexto) | Web API con Controllers, no minimal API para CRUD corporativo |
-| ORM | **Dapper** + `Microsoft.Data.SqlClient` | Ligero, explícito, sin tracking |
-| BD | SQL Server | SPs solo donde aportan (escrituras críticas con contrato de salida) |
-| Auth | JWT (`Microsoft.AspNetCore.Authentication.JwtBearer`) + ApiKey propio | Filter/attr; generación con `JsonWebTokenHandler` |
-| Rate limiting | ASP.NET Core RateLimiter | `RateLimitPartition.GetFixedWindowLimiter` + partición por IP |
-| Lockout | Servicio propio con `TimeProvider` | BCL, sin timers ni dependencias |
-| Logs | `ILogger` + `GlobalExceptionHandler` | Sin librería de terceros necesaria; auditoría de eventos de seguridad |
-| Tests | xUnit v3 + `Microsoft.AspNetCore.Mvc.Testing` | Integración contra BD real + HTTP con `WebApplicationFactory` |
+| ORM | **Dapper** + `System.Data.SqlClient` | Ligero, explícito, sin tracking |
+| BD | SQL Server + Stored Procedures | Lógica de datos en la BD |
+| Auth | JWT (Microsoft.AspNetCore.Authentication.JwtBearer) + ApiKey propio | Filter/attr |
+| Rate limiting | ASP.NET Core RateLimiter | Fixed window + partition por IP |
+| Logs | ILogger + GlobalExceptionHandler | Sin librería de terceros necesaria |
+| Tests | xUnit + WebApplicationFactory | Integración contra BD real |
 | Serialización | System.Text.Json | CamelCase, sin ciclos |
-| Documentación | Swagger/Swashbuckle | Versionado compatible (ver §11) |
+| Documentación | Swagger/Swashbuckle | Versionado compatible (ver §9) |
 
 ---
 
 ## 3. Estructura de carpetas (Clean Architecture)
 
 ```
-MyApi.sln
-├── MyApi.Domain/            # Modelos, DTOs, entidades (sin dependencias)
-│   └── Models/              # e.g. ApiResponse<T>, User, LoginRequest
-├── MyApi.Application/       # Servicios y lógica de negocio
-│   ├── Services/            # e.g. UserService, AuthService
-│   └── Interfaces/          # Contratos de servicios (ej. IIpLockoutService)
-├── MyApi.Infrastructure/    # Acceso a datos (Dapper, context, SPs), seguridad
+WebApiCore.sln
+├── WebApiCore.Domain/          # Modelos, DTOs, entidades (sin dependencias)
+│   └── Models/                 # e.g. ApiResponse<T>, User, LoginRequest
+├── WebApiCore.Application/     # Servicios y lógica de negocio
+│   └── Services/               # e.g. UserService, AuthService
+├── WebApiCore.Infrastructure/  # Acceso a datos (Dapper, context, SPs)
 │   ├── Repositories/
-│   ├── Context/             # IDapperContext
-│   └── Security/            # PasswordHasher, JwtTokenUtil, IpLockoutService
-└── MyApi/                   # API (Program.cs, Controllers, Filters, Middleware)
+│   ├── Context/                # IDapperContext
+│   └── Mappings/
+└── WebApiCore/                 # API (Program.cs, Controllers, Filters)
     ├── Controllers/
-    ├── Filters/             # ApiKeyFilter, operaciones de Swagger
-    ├── Middleware/          # GlobalExceptionHandler, SecurityHeadersMiddleware
-    ├── Helpers/             # ClientIpResolver
-    ├── Health/              # SqlHealthCheck
-    └── appsettings.json     # + appsettings.{Environment}.json (sin secretos)
+    ├── Filters/                # ApiKeyOperationFilter, AuthorizeOperationFilter, GlobalExceptionHandler
+    ├── Middleware/
+    ├── Models/
+    └── appsettings.json        # + appsettings.{Environment}.json
 ```
 
 Reglas de dependencia (una sola dirección):
 - `Domain` no conoce a nadie.
 - `Application` conoce a `Domain`.
 - `Infrastructure` conoce a `Application` (y `Domain`).
-- `MyApi` (API) conoce a todos, pero **nadie la conoce a ella**.
+- `WebApiCore` (API) conoce a todos, pero **nadie la conoce a ella**.
 
-**Anti-patrón clásico**: un solo proyecto con `Models/Repositories/Services/Controllers` todos juntos. Funciona el primer año; luego las dependencias se mezclan y migrar de ORM o de BD rompe todo.
+**Anti-patrón clásico**: un solo proyecto `WebApiCore` con `Models/Repositories/Services/Controllers` todos juntos. Funciona el primer año; luego las dependencias se mezclan y migrar de ORM o de BD rompe todo.
 
 ---
 
-## 4. Capa de datos (Dapper)
+## 4. Capa de datos (Dapper + SPs)
 
-### Contexto (`IDapperContext`)
+> ⚠️ **Variante de este proyecto**: `PasswordManager_.NET10` **no usa stored procedures**; usa Dapper con **SQL parametrizado** directamente en el repositorio (el login se resuelve en C# y el registro usa un `INSERT` parametrizado que devuelve un enum de estado). Motivo: la lógica de negocio queda en código testeable, sin un round-trip extra a la BD. Ver `DEVELOPMENT.md` §3. **No reintroducir SPs ni el envelope de §5 en este proyecto**: ambas decisiones están documentadas y el cliente MAUI depende del contrato plano (`ProblemDetails`).
+
+### Contexto (IDapperContext)
 
 ```csharp
 public interface IDapperContext
@@ -95,7 +85,7 @@ public interface IDapperContext
 }
 ```
 
-Implementación que toma la connection string del entorno activo con **fail-fast**:
+Implementación que toma la connection string del entorno activo:
 
 ```csharp
 public class DapperContext : IDapperContext
@@ -104,29 +94,25 @@ public class DapperContext : IDapperContext
 
     public DapperContext(IConfiguration config, IHostEnvironment env)
     {
+        // Fail-fast: si falta, la API no arranca.
         var conn = env.IsDevelopment()
-            ? config.GetConnectionString("Local")
-            : config.GetConnectionString("Production");
+            ? config.GetConnectionString("SqlServer")
+            : config.GetConnectionString("SqlServerWeb");
 
         if (string.IsNullOrWhiteSpace(conn))
-            throw new InvalidOperationException("No se encontró la connection string del entorno activo.");
+            throw new InvalidOperationException("No se encontró ConnectionStrings:SqlServer/SqlServerWeb");
         ConnectionString = conn;
     }
 }
 ```
 
-### Reglas generales de los repositorios
+### Stored Procedures con contrato de respuesta (SqlResponse)
 
-- Reciben **datos ya procesados** (p.ej. `passwordHash` calculado en Application); la capa de datos no aplica lógica de negocio.
-- **`CancellationToken` en todos los métodos async** y propagado al `CommandDefinition`.
-- Parámetros explícitos con `DynamicParameters` cuando haya tipos/salidas especiales; anónimos solo en lecturas simples.
-- Preferir **consultas de lectura en C#** (queries directas) y reservar SPs para **escrituras críticas** con contrato de resultado. Decisión por caso, no por dogma.
-
-### SP de escritura con contrato de salida
+Cada SP devuelve un resultado con `IsSuccess`, `StatusCode` y `Message` para que la capa de aplicación sepa si la operación fue exitosa sin adivinar:
 
 ```sql
 -- Patrón de SP de escritura
-CREATE PROCEDURE RegisterUser
+CREATE PROCEDURE Auth_Login
     @Email NVARCHAR(100),
     @PasswordHash NVARCHAR(500),
     @IsSuccess BIT OUTPUT,
@@ -135,19 +121,19 @@ CREATE PROCEDURE RegisterUser
 AS
 BEGIN
     SET NOCOUNT ON;
-    IF EXISTS (SELECT 1 FROM Users WHERE Email = @Email)
+    IF NOT EXISTS (SELECT 1 FROM Auth_Users WHERE Email = @Email)
     BEGIN
         SET @IsSuccess = 0; SET @StatusCode = 400;
-        SET @Message = N'El email ya existe'; RETURN;
+        SET @Message = N'Usuario o contraseña incorrecta'; RETURN;
     END
-    -- insert...
+    -- validar hash...
 END
 ```
 
 ### Uso desde repositorio
 
 ```csharp
-public async Task<CommandResult> RegisterAsync(string email, string passwordHash, CancellationToken ct)
+public async Task<LoginResult?> GetUserAsync(string email, string passwordHash)
 {
     using var connection = new SqlConnection(_context.ConnectionString);
     var p = new DynamicParameters();
@@ -157,62 +143,26 @@ public async Task<CommandResult> RegisterAsync(string email, string passwordHash
     p.Add("@StatusCode", dbType: DbType.Int32, direction: ParameterDirection.Output);
     p.Add("@Message", dbType: DbType.String, size: 500, direction: ParameterDirection.Output);
 
-    var cmd = new CommandDefinition("RegisterUser", p, commandType: CommandType.StoredProcedure, cancellationToken: ct);
-    await connection.ExecuteAsync(cmd);
+    await connection.ExecuteAsync("Auth_Login", p, commandType: CommandType.StoredProcedure);
 
-    return new CommandResult(p.Get<bool>("@IsSuccess"), p.Get<int>("@StatusCode"), p.Get<string>("@Message"));
+    var isSuccess = p.Get<bool>("@IsSuccess");
+    if (!isSuccess)
+        return new LoginResult(false, p.Get<int>("@StatusCode"), p.Get<string>("@Message"));
+
+    // segunda consulta para datos del usuario...
+    return new LoginResult(true, 200, "OK", user);
 }
 ```
 
-**Lectura en C#** (login verificado fuera de SP, sin exponer el hash en SQL):
-
-```csharp
-public async Task<User?> GetUserByEmailAsync(string email, CancellationToken ct)
-{
-    using var connection = new SqlConnection(_context.ConnectionString);
-    var cmd = new CommandDefinition(
-        "SELECT * FROM Users WHERE Email = @Email",
-        new { Email = email },
-        cancellationToken: ct);
-    return await connection.QueryFirstOrDefaultAsync<User>(cmd);
-}
-```
+**Regla**: los repositorios reciben datos ya procesados (por ejemplo, el `passwordHash` calculado en Application); la capa de datos no aplica lógica de negocio.
 
 ---
 
-## 5. Contrato de respuestas y errores
+## 5. Contrato uniforme de respuesta (Envelope)
 
-Dos patrones válidos. **Elegir UNO y aplicarlo a todo el API**; el error real es mezclarlos.
+> ⚠️ **Variante de este proyecto**: `PasswordManager_.NET10` usa el **contrato v2**: **sin envelope**. Los servicios devuelven el DTO directamente y los errores salen como **`application/problem+json`** (RFC 9457) con `status`/`title`/`detail`/`traceId`, generados por `GlobalExceptionHandler`, `InvalidModelStateResponseFactory`, `JwtBearerEvents.OnChallenge`, `OnRejected` del rate limiter y `MapFallback`. Motivo: `ApiResponse<T>` duplicaba información que el status HTTP ya transporta y obligaba al cliente a desenvolver cada respuesta. El envelope de esta sección sigue siendo válido como **patrón genérico para otros proyectos**, pero **no aplicarlo en este repo**: el cliente MAUI deserializa DTOs planos y `ProblemDetails`. Ver `DEVELOPMENT.md` §3.
 
-### Patrón por defecto (recomendado en proyectos nuevos): DTO + `ProblemDetails`
-
-- **Éxito (2xx)** → el DTO directo: `200 { "id": 1, "email": "ana@x.com" }`.
-- **Error** → `ProblemDetails` (RFC 9457, nativo de ASP.NET Core con `AddProblemDetails` + `IProblemDetailsService`):
-
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc9457",
-  "title": "Una o más validaciones fallaron.",
-  "status": 400,
-  "traceId": "0HNNUBE1867EG:00000001",
-  "errors": { "email": ["El email ya existe."] }
-}
-```
-
-Ventajas: estándar de la industria (RFC 9457), nativo del framework (el `400`/`401`/`404` se producen casi sin código propio), interoperable con clientes y monitores, y el éxito no va envuelto.
-
-```csharp
-[HttpGet("{id}")]
-public async Task<ActionResult<UserDto>> GetById(int id, CancellationToken ct)
-{
-    var user = await _userService.GetByIdAsync(id, ct);
-    return user is null ? NotFound() : Ok(user);
-}
-```
-
-### Alternativa: envelope uniforme `ApiResponse<T>` (solo con requisito explícito)
-
-Un solo contrato para éxito y error, con `traceId`:
+Toda respuesta HTTP pasa por el mismo envelope. Esto estabiliza el contrato con el frontend:
 
 ```csharp
 public class ApiResponse<T>
@@ -221,71 +171,72 @@ public class ApiResponse<T>
     public int StatusCode { get; set; }
     public string Message { get; set; } = string.Empty;
     public T? Data { get; set; }
-    public Dictionary<string, string[]>? Errors { get; set; }  // o List<string>
-    public string? TraceId { get; set; }
+    public List<string>? Errors { get; set; }
 }
 ```
 
-```json
-{ "isSuccess": true, "statusCode": 200, "message": "OK", "data": { ... }, "errors": null, "traceId": "..." }
+Controladores lo usan siempre, sin excepciones:
+
+```csharp
+[HttpGet("{id}")]
+public async Task<IActionResult> GetById(int id)
+{
+    var user = await _userService.GetByIdAsync(id);
+    if (user is null)
+        return NotFound(new ApiResponse<object> { IsSuccess = false, StatusCode = 404, Message = "No encontrado" });
+
+    return Ok(new ApiResponse<UserDto> { IsSuccess = true, StatusCode = 200, Message = "OK", Data = user });
+}
 ```
 
-Cuándo elegirlo:
-- El cliente requiere **un único esquema de deserialización** (no decidir la forma según el status HTTP).
-- Se necesita envolver `data` con metadatos de negocio.
-- Frontend legacy que ya parsea un envelope.
+### Tabla de códigos coherente
 
-Costo: el éxito va envuelto y no es un estándar interoperable.
+| Caso | HTTP | Envelope |
+|------|------|----------|
+| Éxito | 200/201 | `IsSuccess=true` |
+| Entrada inválida (modelo/validación) | 400 | `IsSuccess=false`, `Errors` |
+| No autenticado | 401 | `IsSuccess=false` |
+| Sin permiso | 403 | `IsSuccess=false` |
+| No existe | 404 | `IsSuccess=false` |
+| Límite de peticiones excedido | 429 | `IsSuccess=false` |
+| Error interno | 500 | `IsSuccess=false`, mensaje genérico |
 
-### Tabla de códigos coherente (aplica a ambos patrones)
-
-| Caso | HTTP | Respuesta |
-|------|------|-----------|
-| Éxito | 200/201 | DTO directo o `IsSuccess=true` |
-| Entrada inválida (validación) | 400 | `ProblemDetails` con `errors` |
-| No autenticado | 401 | `ProblemDetails` |
-| Sin permiso | 403 | `ProblemDetails` |
-| No existe | 404 | `ProblemDetails` |
-| Límite de peticiones excedido | 429 | `ProblemDetails` |
-| Error interno | 500 | `ProblemDetails`, mensaje genérico |
-
-**Anti-patrón**: mezclar contratos — unos endpoints con DTO directo, otros con `string` de error, otros con `ProblemDetails` crudo. El frontend termina con `if (status === 400) ... else if (typeof res === 'string') ...`.
-
-> **Nota**: el envelope `ApiResponse<T>` puede existir en repositorios existentes por decisión histórica (contrato ya consumido por un cliente legacy, p.ej. MAUI). Es válido cuando ese contrato ya existe, pero **no** es el patrón por defecto recomendado en proyectos nuevos.
+**Anti-patrón**: devolver en unos endpoints `{data: ...}` directo y en otros un `string` de error o `ProblemDetails` crudo. El frontend termina con `if (status === 400) ... else if (typeof res === 'string') ...`.
 
 ---
 
 ## 6. Manejo de errores global
 
-### `GlobalExceptionHandler` (registrado con `AddExceptionHandler`)
+### `GlobalExceptionHandler`
+
+Un solo manejador central captura excepciones no controladas, las **loguea** y responde 500 genérico:
 
 ```csharp
 public class GlobalExceptionHandler : IExceptionHandler
 {
-    private readonly ILogger<GlobalExceptionHandler> _logger;
-
     public async ValueTask<bool> TryHandleAsync(HttpContext ctx, Exception ex, CancellationToken ct)
     {
         _logger.LogError(ex, "Error no controlado");
-        var problem = new ProblemDetails
+        var response = new ApiResponse<object>
         {
-            Status = 500,
-            Title = "Ha ocurrido un error interno.",
-            Extensions = { ["traceId"] = ctx.TraceIdentifier }
+            IsSuccess = false,
+            StatusCode = 500,
+            Message = "Ha ocurrido un error interno."
         };
         ctx.Response.StatusCode = 500;
-        await ctx.Response.WriteAsJsonAsync(problem, ct);
+        ctx.Response.ContentType = "application/json";
+        await ctx.Response.WriteAsJsonAsync(response, ct);
         return true;
     }
 }
 ```
 
-Registro en `Program.cs`:
+Registro:
 
 ```csharp
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddProblemDetails(); // puede requerirse por el handler
-// pipeline: app.UseExceptionHandler(); (temprano, antes de seguridad/CORS)
+// ...
+app.UseExceptionHandler();
 ```
 
 ### Error de modelo (400) uniforme
@@ -295,46 +246,41 @@ builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(opts =>
     {
         opts.InvalidModelStateResponseFactory = ctx =>
-            new BadRequestObjectResult(new ValidationProblemDetails(ctx.ModelState)
+        {
+            var errors = ctx.ModelState.Values
+                .SelectMany(v => v.Errors)
+                .Select(e => e.ErrorMessage)
+                .ToList();
+            return new BadRequestObjectResult(new ApiResponse<object>
             {
-                Title = "Datos de entrada inválidos.",
-                Extensions = { ["traceId"] = ctx.HttpContext.TraceIdentifier }
+                IsSuccess = false, StatusCode = 400,
+                Message = "Datos de entrada inválidos.", Errors = errors
             });
+        };
     });
 ```
 
 **Regla**: el mensaje de 500 es genérico para el cliente; el detalle real va al log. Nunca `ex.Message` en una respuesta 500.
 
-> Si el proyecto eligió el envelope `ApiResponse<T>` (sección 5), estos handlers devuelven `ApiResponse.Failure`/`Success` en lugar de `ProblemDetails`. El patrón de centralización es el mismo; solo cambia el cuerpo.
-
 ---
 
 ## 7. Autenticación y autorización
 
-### Contraseñas (PBKDF2 del BCL)
+### Contraseñas (PBKDF2)
 
 ```csharp
 public static string HashPassword(string password)
 {
     byte[] salt = RandomNumberGenerator.GetBytes(16);
     byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
-        password, salt, 100_000, HashAlgorithmName.SHA256, 32);
+        password, salt, 10000, HashAlgorithmName.SHA256, 32);
     return Convert.ToBase64String(salt) + ":" + Convert.ToBase64String(hash);
-}
-
-public static bool Verify(string password, string stored)
-{
-    var parts = stored.Split(':');
-    var salt = Convert.FromBase64String(parts[0]);
-    var expected = Convert.FromBase64String(parts[1]);
-    var actual = Rfc2898DeriveBytes.Pbkdf2(password, salt, 100_000, HashAlgorithmName.SHA256, expected.Length);
-    return CryptographicOperations.FixedTimeEquals(expected, actual); // tiempo constante
 }
 ```
 
 **Nunca**: texto plano, MD5, SHA1, o el mismo hash para todos los usuarios (sin salt).
 
-### JWT — validación
+### JWT
 
 ```csharp
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -345,53 +291,29 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuer = true, ValidateAudience = true,
             ValidateLifetime = true, ClockSkew = TimeSpan.Zero,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["JWT:Key"]!)),
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(config["JWT:Key"]!)),
             ValidIssuer = config["JWT:Issuer"],
             ValidAudience = config["JWT:Audience"]
         };
-        // 401 estándar (ProblemDetails) si falla el token
+        // 401 uniforme si falla el token
         opts.Events = new JwtBearerEvents
         {
             OnChallenge = ctx =>
             {
                 ctx.HandleResponse();
                 ctx.Response.StatusCode = 401;
-                return ctx.Response.WriteAsJsonAsync(new ProblemDetails
-                {
-                    Status = 401,
-                    Title = "No autorizado.",
-                    Extensions = { ["traceId"] = ctx.HttpContext.TraceIdentifier }
-                });
+                ctx.Response.ContentType = "application/json";
+                return ctx.Response.WriteAsJsonAsync(new ApiResponse<object>
+                { IsSuccess = false, StatusCode = 401, Message = "No autorizado." });
             }
         };
     });
 ```
 
-### JWT — generación con `JsonWebTokenHandler` (no el legado)
-
-```csharp
-var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
-{
-    Subject = new ClaimsIdentity(new[]
-    {
-        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new Claim(ClaimTypes.Email, user.Email),
-        new Claim(ClaimTypes.Role, user.Role)
-    }),
-    Issuer = jwtOptions.Issuer,
-    Audience = jwtOptions.Audience,
-    Expires = DateTime.UtcNow.AddMinutes(jwtOptions.ExpireMin),
-    IssuedAt = DateTime.UtcNow,
-    NotBefore = DateTime.UtcNow,
-    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
-});
-```
-
-> `JsonWebTokenHandler` no soporta `OutboundClaimTypeMap` (los claims se escriben tal cual, incluida la URI larga de `ClaimTypes.Role`). Si quieres control total de fechas, usa `SetDefaultTimesOnTokenCreation = false` y declara `IssuedAt`/`NotBefore`/`Expires` explícitamente.
-
 ### ApiKey global (separada del JWT)
 
-El origen (Swagger, Postman, frontend) envía la ApiKey en **header** (nunca en query string). Se valida con comparación en tiempo constante. **Cachea el valor con TTL corto** para no golpear la BD en cada request:
+El origen (Swagger, Postman, frontend) envía la ApiKey configurada en BD (`Mae_Config`). Se valida en un filtro de acción:
 
 ```csharp
 public class ApiKeyFilter : IAsyncActionFilter
@@ -400,14 +322,17 @@ public class ApiKeyFilter : IAsyncActionFilter
     {
         if (!ctx.HttpContext.Request.Headers.TryGetValue("X-Api-Key", out var apiKey))
         {
-            ctx.Result = new UnauthorizedObjectResult(ApiResponse.Failure<object>(401, "ApiKey requerida.", ctx.HttpContext.TraceIdentifier));
+            ctx.Result = new UnauthorizedObjectResult(new ApiResponse<object>
+                { IsSuccess = false, StatusCode = 401, Message = "ApiKey requerida." });
             return;
         }
-        var stored = await _configService.GetApiKeyAsync(ctx.HttpContext.RequestAborted); // cacheado 30 s
-        if (string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(stored) ||
-            !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(apiKey!), Encoding.UTF8.GetBytes(stored)))
+        // comparar contra el valor almacenado en BD (Mae_Config) de forma segura
+        var stored = await _configService.GetAsync("ApiKey");
+        if (!CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(apiKey!),
+                Encoding.UTF8.GetBytes(stored)))
         {
-            ctx.Result = new UnauthorizedObjectResult(ApiResponse.Failure<object>(401, "ApiKey inválida.", ctx.HttpContext.TraceIdentifier));
+            ctx.Result = new UnauthorizedObjectResult(/* 401 uniforme */);
             return;
         }
         await next();
@@ -415,119 +340,45 @@ public class ApiKeyFilter : IAsyncActionFilter
 }
 ```
 
-### Cache de valores de config (patrón transversal)
-
-Cache corto con `TimeProvider` + lock (sin dependencias): primero consulta BD, luego sirve del cache mientras no expire. TTL de 30 s equilibra "no golpear BD" con "propagar rotación de la key rápido". Para el reloj, **siempre `TimeProvider`** (inyectado), nunca `DateTime.Now` directo: es lo que permite testear expiración sin dormir.
+**Regla**: la ApiKey viaja en header, **nunca en la query string** (queda en logs del servidor y del proxy).
 
 ---
 
 ## 8. Rate limiting y CORS
 
-### Rate limiting moderno (`.NET 7+`)
-
-La API `AddFixedWindowLimiter` con `PartitionKey` está **obsoleta**. Se usa `RateLimitPartition`:
+### Rate limiting por cliente
 
 ```csharp
-builder.Services.AddRateLimiter(options =>
+builder.Services.AddRateLimiter(opts =>
 {
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-    options.AddPolicy("client_25_per_minute", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: ClientIpResolver.Resolve(context),
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                AutoReplenishment = true,
-                PermitLimit = 25,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
-
-    // política estricta solo para login (anti brute-force)
-    options.AddPolicy("login_5_per_minute", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: ClientIpResolver.Resolve(context),
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                AutoReplenishment = true,
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
-
-    // 429 con envelope uniforme
-    options.OnRejected = async (context, ct) =>
+    opts.RejectionStatusCode = 429;
+    opts.AddFixedWindowLimiter("fixed", lim =>
     {
-        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-        context.HttpContext.Response.ContentType = "application/json";
-        await context.HttpContext.Response.WriteAsJsonAsync(
-            ApiResponse.Failure<object>(429, "Demasiadas solicitudes. Intenta nuevamente.", traceId: context.HttpContext.TraceIdentifier), ct);
-    };
+        lim.PermitLimit = 10;
+        lim.Window = TimeSpan.FromMinutes(1);
+        lim.QueueLimit = 0;
+        lim.PartitionKey = PartitionKey.Get<HttpContext>(ctx =>
+        {
+            // detrás de proxy/load balancer
+            var fwd = ctx.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            return string.IsNullOrWhiteSpace(fwd)
+                ? ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown"
+                : fwd;
+        });
+    });
 });
-```
-
-En el controlador:
-
-```csharp
-[EnableRateLimiting("client_25_per_minute")]
-public class AuthController : ControllerBase
-{
-    [HttpPost("login")]
-    [EnableRateLimiting("login_5_per_minute")] // la política de acción gana sobre la del controller
-    public IActionResult Login(...) { ... }
-}
+// ...
+app.UseRateLimiter();
+// en controladores sensibles:
+[EnableRateLimiting("fixed")]
 ```
 
 **Anti-patrón**: rate limit global sin partición por IP → un solo usuario abusivo bloquea a todos, o la regla no aplica tras un proxy porque todos llegan con la IP del balanceador.
 
-### `ClientIpResolver` (compartido)
-
-Un helper único para resolver la IP del cliente (rate limiter, lockout, auditoría lo usan) — primer valor de `X-Forwarded-For` con fallback a `RemoteIpAddress`:
-
-```csharp
-public static class ClientIpResolver
-{
-    public static string Resolve(HttpContext ctx)
-    {
-        var fwd = ctx.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        return string.IsNullOrWhiteSpace(fwd)
-            ? ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown"
-            : fwd;
-    }
-}
-```
-
-### Lockout por IP (bloqueo tras N fallos)
-
-Rate limit protege el volumen; el **lockout** protege la lógica de credenciales (bloqueo por ventana + duración, con `429` y `Retry-After`). Patrón genérico y testeable:
-
-```csharp
-public class IpLockoutService : IIpLockoutService
-{
-    private readonly IpLockoutOptions _options;
-    private readonly TimeProvider _timeProvider;
-    private readonly ConcurrentDictionary<string, LockoutEntry> _entries = new();
-
-    public IpLockoutService(IpLockoutOptions options, TimeProvider? timeProvider = null)
-        => (_options, _timeProvider) = (options, timeProvider ?? TimeProvider.System);
-
-    public bool IsBlocked(string ip) { /* ventana expirada => limpiar entrada; bloqueado => true */ }
-    public void RegisterFailure(string ip) { /* contador + ventana + activar bloqueo al llegar a MaxFailures */ }
-    public void Reset(string ip) { /* quitar entrada (login exitoso) */ }
-    public TimeSpan? GetRemainingBlockTime(string ip) { /* para Retry-After */ }
-}
-```
-
-Reglas de diseño:
-- **`TimeProvider` inyectado** (BCL, no es un timer): testear expiración/ventana sin esperar en tiempo real.
-- **Lazy cleanup** sin timers: las entradas se limpian al consultar (ventana expirada). Un `System.Timers.Timer` para limpiar es complejidad innecesaria.
-- Configuración por **instancia**: `IpLockoutOptions { MaxFailures, FailureWindow, BlockDuration }`. Puedes registrar dos instancias en DI (una para ApiKey, otra para login) sin duplicar lógica — `AddSingleton` + `AddKeyedSingleton` si ambas coexisten.
-- El servicio no depende de `ILogger` (testeable y portable sin el shared framework); el logging va en el filter/controller.
-
 ### CORS (allow-list explícita)
 
 ```csharp
-var cors = config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+var cors = config.GetSection("Cors").Get<string[]>() ?? Array.Empty<string>();
 builder.Services.AddCors(o => o.AddPolicy("Default", p =>
     p.WithOrigins(cors).AllowAnyHeader().AllowAnyMethod()));
 ```
@@ -536,104 +387,35 @@ builder.Services.AddCors(o => o.AddPolicy("Default", p =>
 
 ---
 
-## 9. Seguridad HTTP y operabilidad
+## 9. Configuración y fail-fast
 
-### Security headers (middleware)
-
-Headers de endurecimiento aplicados a las rutas de API (**excluir** `/swagger` para no romper la UI):
-
-```csharp
-app.UseMiddleware<SecurityHeadersMiddleware>(); // después de UseExceptionHandler, antes de endpoints
-```
-
-```csharp
-public class SecurityHeadersMiddleware
-{
-    private readonly RequestDelegate _next;
-
-    public async Task InvokeAsync(HttpContext context)
-    {
-        if (!context.Request.Path.StartsWithSegments("/swagger"))
-        {
-            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-            context.Response.Headers["X-Frame-Options"] = "DENY";
-            context.Response.Headers["Referrer-Policy"] = "no-referrer";
-            context.Response.Headers["Content-Security-Policy"] = "default-src 'none'";
-            // en HTTPS de producción, añadir: context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000";
-        }
-        await _next(context);
-    }
-}
-```
-
-### Health check con chequeo de BD
-
-```csharp
-builder.Services.AddHealthChecks().AddCheck<SqlHealthCheck>("sql");
-// ...
-app.MapHealthChecks("/health"); // después de MapControllers
-```
-
-```csharp
-public class SqlHealthCheck : IHealthCheck
-{
-    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct)
-    {
-        try { /* SELECT 1 con Dapper/SqlClient */ return HealthCheckResult.Healthy(); }
-        catch (Exception ex) { return HealthCheckResult.Unhealthy("SQL no disponible", ex); }
-    }
-}
-```
-
-### Auditoría de eventos de seguridad
-
-En controllers/servicios, loguear los eventos sensibles con **IP + email** (los logs son la pista de ataques):
-
-```csharp
-_logger.LogWarning("Login fallido. IP {Ip} - Email {Email}", ip, email);
-_logger.LogInformation("Login exitoso. IP {Ip} - Email {Email}", ip, email);
-_logger.LogWarning("Login bloqueado por IP. IP {Ip} - Email {Email}", ip, email);
-```
-
----
-
-## 10. Configuración y fail-fast
-
-`appsettings.json` (producción) y `appsettings.Development.json` (local) por separado; **sin secretos**:
+`appsettings.json` (producción) y `appsettings.Development.json` (local) por separado:
 
 ```json
 {
   "ConnectionStrings": {
-    "Local": "Server=LOCAL;Database=...;Integrated Security=True",
-    "Production": "Server=...;Database=...;User Id=...;Password=...;TrustServerCertificate=True"
+    "SqlServer": "Server=LOCAL;Database=...;Integrated Security=True",
+    "SqlServerWeb": "Server=...;Database=...;User Id=...;Password=...;TrustServerCertificate=True"
   },
-  "JWT": { "Key": "desde user-secrets / env var", "Issuer": "...", "Audience": "...", "ExpireMin": 60 },
-  "Cors": { "AllowedOrigins": ["https://origen-frontend"] },
-  "RateLimit": { "PermitLimit": 25, "WindowSeconds": 60, "LoginPermitLimit": 5, "LoginWindowSeconds": 60 }
+  "JWT": { "Key": "...", "Issuer": "...", "Audience": "...", "ExpireMinutes": 60 },
+  "Cors": [ "https://origen-frontend" ],
+  "RateLimit": { "PermitLimit": 10, "WindowMinutes": 1 }
 }
 ```
 
 Fail-fast: validar la config requerida **al arrancar**, no al primer request:
 
 ```csharp
-var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-    ?? throw new InvalidOperationException("La sección 'JWT' no está configurada.");
+if (string.IsNullOrWhiteSpace(config["JWT:Key"])) throw new InvalidOperationException("JWT:Key no configurada");
 ```
 
 **Regla de oro**: un servidor que arranca con config inválida es un bug silencioso; uno que lanza excepción es un bug evidente.
 
-### Secretos (regla estricta)
-
-- **Nunca** commitear `appsettings.json` con secretos reales.
-- **Desarrollo**: `dotnet user-secrets set "JWT:Key" "<clave>"` (viven en `%APPDATA%`, no se versionan).
-- **Producción**: variables de entorno con la clave por sección (`JWT__Key`); el binding de configuración de .NET da prioridad a env vars sobre appsettings.
-- Mantener en el repo una **plantilla `appsettings.Example.json`** con valores de ejemplo y sin datos reales.
-- Si una clave de desarrollo quedó expuesta en el historial de git y se usó en algún entorno real, **rotarla** (es pública).
-- Nota: una decisión documentada de "clave de testing versionada, producción con appsettings propio" es aceptable en proyectos internos **siempre que se registre explícitamente como riesgo asumido** y producción nunca reutilice esa clave.
+**Nunca** commitear `appsettings.json` con secretos reales. Usar `.env`/secrets del proveedor o variables de entorno y mantener en el repo una plantilla `appsettings.Example.json`.
 
 ---
 
-## 11. Swagger / OpenAPI (compatibilidad de versiones)
+## 10. Swagger / OpenAPI (compatibilidad de versiones)
 
 La versión de Swashbuckle define la API de `Microsoft.OpenApi`:
 
@@ -657,7 +439,7 @@ Endpoint de Swagger en `Program.cs` — usar **ruta absoluta** para evitar probl
 
 ```csharp
 app.UseSwagger();
-app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MyApi v1"));
+app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "WebApiCore v1"));
 ```
 
 **Gotchas reales detectados**:
@@ -667,7 +449,7 @@ app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MyApi v1"))
 
 ---
 
-## 12. MAUI (clientes .NET multiplataforma)
+## 11. MAUI (clientes .NET multiplataforma)
 
 Las mismas reglas de C# y seguridad aplican al frontend MAUI. Anti-patrones que rompen apps reales:
 
@@ -681,100 +463,620 @@ Las mismas reglas de C# y seguridad aplican al frontend MAUI. Anti-patrones que 
 | `HttpClientHandler` manual con SSL bypass | MITM → fuga de credenciales | Configuración de trust del SO, nunca `ServerCertificateCustomValidationCallback = (_) => true` |
 | `System.Random` para contraseñas/IDs | Predictible, inseguro | `RandomNumberGenerator` |
 | Columnas `Data01`/`Data02` en BD | Sin semántica, imposible de mantener | Nombres de dominio reales |
-| `System.Timers.Timer` tocando la UI desde otro hilo | Race conditions / crashes de UI | `Dispatcher`/`MainThread.InvokeOnMainThreadAsync` |
-| ViewModel Singleton con estado global compartido | Estado corrupto entre páginas | ViewModel por página, servicios como singletons |
-| **Asumir el nombre del JSON sin verificar** | El contrato usa `user_Id` y el cliente lee `userId` → siempre `null` | Verificar el JSON real (o `[JsonPropertyName]`) y mapear explícito |
+| `System.Timers.Timer` tocando la UI desde otro hilo | Race conditions / crashes de UI | `PeriodicTimer` (async) o `MainThread.InvokeOnMainThreadAsync` |
+| ViewModel Singleton con estado global compartido | Estado corrupto entre páginas | ViewModel Transiente, servicios como singletons |
+| DataTriggers para estado visual binario | No revierten estilo base en MAUI | `IValueConverter` con Binding directo |
+| Clicks rápidos en navegación crean múltiples instancias | Re-entrancy en `PushAsync` | Guard `IsBusy` + `InvertedBoolConverter` en `IsEnabled` de botones |
+| `async void OnNavigatedTo` con `await` de sensores | Crash al navegar fuera durante el `await` | `OnNavigatedTo` síncrono + fire-and-forget seguro con try/catch |
+| Suscripciones duplicadas a eventos de sensores Singleton | Event handlers apuntando a VMs destruidas → crash | Unsubscribe antes de Subscribe + antes de Stop() en cleanup |
 
 ### Reglas MAUI senior
-- **MVVM**: ViewModel por página, propiedades `ObservableProperty`, `[RelayCommand]`.
+- **MVVM**: ViewModel por página, `partial properties` con `[ObservableProperty]` (requiere `<LangVersion>preview</LangVersion>` en csproj), `[RelayCommand]`.
 - **Inyección de dependencias** (DI nativa de MAUI): servicios en `MauiProgram`, páginas/VM resueltas por DI.
 - **Nunca** lógica de negocio en `code-behind`; solo eventos de UI delegando a comandos.
 - **HttpClient singleton + auth** con handlers que agregan JWT/ApiKey.
-- **Contrato seguro con la API**: tokens sensibles (`SqlToken`) en **header**, nunca en query string (queda en logs/URLs).
-- Tratar la migración/refactor como un **proyecto de auditoría**: leer el análisis previo y corregir los hallazgos uno a uno con aprobación del usuario (regla de issues).
+- Tratar la migración/refactor como un **proyecto de auditoría**: leer el análisis previo (por ejemplo `ANALISIS_V1.md`) y corregir los hallazgos uno a uno con aprobación del usuario (regla de issues).
+- Localización por resx + markup `{extensions:Translate}` (§11.9), versionado solo en `.csproj` (§11.10), audio elegido por caso de uso (§11.11), colores con `AppThemeBinding` (§11.12), permisos Android por mínimo privilegio con APIs sin permisos protegidos (§11.13) y empaquetado Android por `RuntimeIdentifiers` (§11.14).
+
+### 11.1 Lifecycle de MAUI Shell
+
+El orden de vida de una Page en MAUI Shell es:
+
+```
+Constructor → OnNavigatedTo → OnAppearing
+        ↑                         ↓
+        |                   (page visible)
+        |                         ↓
+        ←←←←←←←← OnDisappearing (page hidden)
+```
+
+**Regla crítica**: `OnAppearing` se ejecuta DESPUÉS de `OnNavigatedTo`. Cualquier lógica que dependa del BindingContext debe ir en `OnNavigatedTo`, no en `OnAppearing`.
+
+```csharp
+// CORRECTO
+protected override void OnNavigatedTo(NavigatedToEventArgs args)
+{
+    base.OnNavigatedTo(args);
+    BindingContext = _serviceProvider.GetRequiredService<MyViewModel>();
+    // Inicializar servicios aquí, donde BindingContext ya existe
+}
+
+// INCORRECTO — BindingContext puede ser null
+protected override void OnAppearing()
+{
+    base.OnAppearing();
+    if (BindingContext is MyViewModel vm)
+    {
+        vm.Initialize(); // BindingContext no seteado aún
+    }
+}
+```
+
+### 11.2 Singleton vs Transient en DI
+
+| Componente | Lifetime correcto | Justificación |
+|------------|-------------------|---------------|
+| **Services stateless** (wrappers de APIs de plataforma, sensores, idioma) | Singleton | Sin estado mutable persistente; seguros de compartir |
+| **Services con estado por instancia** (reproducción de audio, players, temporizadores) | Transient | Estado aislado por ViewModel/página; evita estado residual entre navegaciones |
+| **ViewModels** | Transient | Fresh instance en cada navegación, sin estado residual |
+| **Pages** | Singleton (Shell) | Shell cachea las ShellContent pages |
+| **AppShell** | Singleton | Shell infrastructure |
+
+```csharp
+// En MauiProgram.cs
+builder.Services
+    // Services sin estado — Singleton
+    .AddSingleton<ILanguageService, LanguageService>()
+    .AddSingleton<IThemeService, ThemeService>()
+    .AddSingleton<IAppInfoService, AppInfoService>()
+    .AddSingleton<ILauncherService, LauncherService>()
+    // Services con estado por instancia — Transient
+    .AddTransient<IAudioPlayerService, AudioPlayerService>()
+    // ViewModels — Transient
+    .AddTransient<HomeViewModel>()
+    .AddTransient<SettingsViewModel>()
+    // Pages — Singleton (Shell)
+    .AddSingleton<HomePage>()
+    .AddSingleton<SettingsPage>();
+```
+
+**Por qué Singleton en Pages**: Shell crea y cachea las ShellContent pages. Si la Page fuera Transiente, Shell la crearía de nuevo en cada navegación, lo cual es innecesario y rompe el estado de la UI.
+
+**Por qué Transient en ViewModels**: Un ViewModel Singleton mantiene estado entre navegaciones (valores de sliders, campos de formulario, lecturas de sensores). Transient garantiza estado limpio cada vez que el usuario navega a una página.
+
+### 11.3 Shell navigation: ShellContent vs Pushed pages
+
+MAUI Shell tiene dos tipos de navegación con comportamientos diferentes:
+
+**ShellContent pages** (tabs, páginas raíz):
+```xml
+<!-- En AppShell.xaml -->
+<TabBar>
+    <ShellContent
+        ContentTemplate="{DataTemplate pages:HomePage}"
+        Route="HomePage" />
+    <ShellContent
+        ContentTemplate="{DataTemplate pages:SettingsPage}"
+        Route="SettingsPage" />
+</TabBar>
+```
+- Shell las crea una vez y las cachea
+- `OnNavigatedTo` solo fires la primera vez
+- VM se resuelve en el constructor
+
+**Pushed pages** (navegación detallada):
+```csharp
+// Desde un ViewModel o code-behind
+var page = _serviceProvider.GetRequiredService<DetailPage>();
+await Shell.Current.Navigation.PushAsync(page);
+```
+- Shell crea una nueva instancia en cada PushAsync
+- `OnNavigatedTo` fires en cada navegación
+- VM se resuelve en `OnNavigatedTo`
+
+```csharp
+// ShellContent page — VM en constructor
+public partial class HomePage : ContentPage
+{
+    public HomePage(IServiceProvider serviceProvider)
+    {
+        InitializeComponent();
+        BindingContext = serviceProvider.GetRequiredService<HomeViewModel>();
+    }
+}
+
+// Pushed page — VM en OnNavigatedTo
+public partial class DetailPage : ContentPage
+{
+    private readonly IServiceProvider _serviceProvider;
+
+    public DetailPage(IServiceProvider serviceProvider)
+    {
+        InitializeComponent();
+        _serviceProvider = serviceProvider;
+    }
+
+    protected override void OnNavigatedTo(NavigatedToEventArgs args)
+    {
+        base.OnNavigatedTo(args);
+        BindingContext = _serviceProvider.GetRequiredService<DetailViewModel>();
+        // Inicializar servicios aquí
+    }
+}
+```
+
+### 11.4 DI en Pages: IServiceProvider pattern vs Constructor DI
+
+**Opción A — IServiceProvider pattern** (cuando el VM es Transient y la Page es Singleton):
+
+```csharp
+public partial class MyPage : ContentPage
+{
+    private readonly IServiceProvider _serviceProvider;
+
+    public MyPage(IServiceProvider serviceProvider)
+    {
+        InitializeComponent();
+        _serviceProvider = serviceProvider;
+    }
+
+    protected override void OnNavigatedTo(NavigatedToEventArgs args)
+    {
+        base.OnNavigatedTo(args);
+        BindingContext = _serviceProvider.GetRequiredService<MyViewModel>();
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        if (BindingContext is MyViewModel vm)
+        {
+            vm.Cleanup();
+        }
+    }
+}
+```
+
+**Opción B — Constructor DI** (cuando el VM se crea una vez y se reusa, o cuando el VM usa state services que persisten):
+
+```csharp
+public partial class MyPage : ContentPage
+{
+    public MyPage(MyViewModel viewModel)
+    {
+        InitializeComponent();
+        BindingContext = viewModel;
+    }
+}
+```
+
+**Opción B es válida cuando** el VM delega estado a un servicio Singleton (como `IStateService`) que persiste entre recreaciones de VM. El VM sigue siendo Transient, pero su estado sobrevive en el servicio. El estado mutable de dominio que debe sobrevivir a la navegación (p. ej. marcas de cronómetro, lecturas de sensores) vive en el servicio Singleton; el VM Transient lo refleja en su `Initialize()`.
+
+**Regla**: si el VM necesita Cleanup() al salir, usar Opción A. Si el estado vive en un servicio Singleton, Opción B es suficiente.
+
+### 11.5 BindableProperty para components
+
+Cuando un `ContentView` necesita dependencias (servicios), no puede usar DI por constructor. Usar `BindableProperty`:
+
+```csharp
+public partial class MyComponent : ContentView
+{
+    private IMyService _service;
+
+    public static readonly BindableProperty ServiceProperty =
+        BindableProperty.Create(nameof(Service), typeof(IMyService),
+            typeof(MyComponent), null, propertyChanged: OnServiceChanged);
+
+    public IMyService Service
+    {
+        get => (IMyService)GetValue(ServiceProperty);
+        set => SetValue(ServiceProperty, value);
+    }
+
+    private static void OnServiceChanged(BindableObject bindable,
+        object oldValue, object newValue)
+    {
+        if (bindable is MyComponent component && newValue is IMyService service)
+        {
+            component._service = service;
+        }
+    }
+}
+```
+
+En XAML, bindear desde el Page:
+```xml
+<components:MyComponent
+    Service="{Binding Source={x:Reference MyPage}, Path=BindingContext.MyService}" />
+```
+
+**Regla**: nunca usar `IPlatformApplication.Current.Services.GetService<>()` directamente en un ContentView. Siempre BindableProperty + binding desde el Page.
+
+### 11.6 Core + MAUI: separación de responsabilidades (transversal)
+
+Aplica a CUALQUIER app MAUI nueva — una app de notas, un password manager, un toolkit. Dividir siempre en dos proyectos:
+
+```
+MiApp.Core/                   # Class Library (net10.0, sin MAUI)
+├── Interfaces/               # Contratos de servicios (testables)
+├── Models/                   # Modelos de dominio
+├── Services/                 # Servicios puros (sin APIs de plataforma)
+└── ViewModels/               # Todas las VMs (testables con xUnit)
+
+MiApp/                        # Proyecto MAUI
+├── Services/
+│   └── Implementations/      # Implementaciones con APIs de plataforma
+│       ├── LanguageService.cs
+│       ├── ThemeService.cs
+│       ├── AppInfoService.cs
+│       └── ... (una por interfaz; SOLO estas conocen Microsoft.Maui)
+└── Pages/                    # Páginas y Views
+```
+
+**Va a Core**: interfaces, modelos, `BaseViewModel` y servicios que solo usan `System.*` y tipos standard.
+**Se queda en MAUI**: servicios que usan `Flashlight.Default`, `Compass.Default`, `MediaElement`, `Window.Attributes`, `AppInfo`, `Launcher`, `Preferences` u otras APIs de plataforma.
+
+**Regla**: si un servicio importa `Microsoft.Maui` o `CommunityToolkit.Maui`, se queda en MAUI. Si solo usa `System.*`, va a Core. La decisión no la da el tema de la app sino **la dependencia**.
+
+**Por qué dos proyectos**: las interfaces y VMs en Core se testean con xUnit sin inicializar MAUI (sin UI thread ni handlers de plataforma); el proyecto MAUI queda como adaptador de plataforma. La regla es idéntica en cualquier app.
+
+### 11.7 Timer moderno en MAUI
+
+`System.Timers.Timer` ejecuta en thread pool y requiere marshaling manual. Usar `PeriodicTimer` (.NET 6+):
+
+```csharp
+// MAL — thread pool, requiere MainThread.BeginInvokeOnMainThread
+private System.Timers.Timer _timer;
+_timer = new System.Timers.Timer(1000);
+_timer.Elapsed += (s, e) => UpdateUI(); // Crash: no es UI thread
+
+// BIEN — async, aware del lifecycle
+private CancellationTokenSource _cts;
+
+public void Start()
+{
+    _cts = new CancellationTokenSource();
+    _ = RunTimerAsync(_cts.Token);
+}
+
+private async Task RunTimerAsync(CancellationToken ct)
+{
+    using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(1000));
+    try
+    {
+        while (await timer.WaitForNextTickAsync(ct))
+        {
+            MainThread.BeginInvokeOnMainThread(() => UpdateUI());
+        }
+    }
+    catch (OperationCanceledException) { }
+}
+
+public void Stop()
+{
+    _cts?.Cancel();
+    _cts?.Dispose();
+    _cts = null;
+}
+```
+
+**Ventajas de `PeriodicTimer`**: async-aware, cancellation nativo, sin threads adicionales, se detiene limpiamente con `CancellationToken`.
+
+**Matiz de precisión — NO compensa deriva**: `PeriodicTimer` espera el intervalo **desde que terminó el tick anterior**, por lo que la deriva se acumula (el delay se mide desde el fin de procesar cada tick, incluyendo marshaling). Para secuencias rítmicas que deben ser exactas (metrónomo, secuenciadores) no basta: programar contra **tiempos absolutos** con reloj monotónico:
+
+```csharp
+var sw = Stopwatch.StartNew();
+long intervalTicks = TimeSpan.FromMilliseconds(60000.0 / bpm).Ticks;
+long next = sw.Elapsed.Ticks;
+
+while (!ct.IsCancellationRequested)
+{
+    next += intervalTicks;
+    var remaining = TimeSpan.FromTicks(next - sw.Elapsed.Ticks);
+    if (remaining > TimeSpan.Zero)
+        await Task.Delay(remaining, ct);
+
+    // ejecutar el beat — SIN esperar la duración de la reproducción
+    PlayBeat();
+}
+```
+
+Cada tick se programa contra el inicio absoluto (`sw.Elapsed`), eliminando deriva acumulada. El jitter por tick restante depende del motor de playback: ver §11.11.
+
+### 11.8 Convertidores para estado visual
+
+Para estado visual binario (on/off, active/inactive), usar `IValueConverter` con Binding directo en vez de DataTriggers:
+
+```xml
+<!-- INCORRECTO — DataTriggers no revierten estilo base en MAUI -->
+<Button.Triggers>
+    <DataTrigger TargetType="Button" Binding="{Binding IsOn}" Value="True">
+        <Setter Property="BackgroundColor" Value="{StaticResource MyAccent}" />
+    </DataTrigger>
+</Button.Triggers>
+
+<!-- CORRECTO — Binding directo con converter -->
+<Button BackgroundColor="{Binding IsOn, Converter={StaticResource OnOffConverter}}" />
+```
+
+**Regla**: los DataTriggers de MAUI tienen un bug conocido donde no revierten el estilo base correctamente al desactivarse. Usar `IValueConverter` con Binding directo es más confiable.
+
+### 11.9 Localización multi-idioma (resx)
+
+Patrón validado en MAUI (ES/EN/SV):
+
+- **Recursos**: un `.resx` base (idioma por defecto) + un `.{culture}.resx` por idioma adicional (p. ej. `.en`, `.sv`), todos con el **mismo nombre base**. La paridad de claves entre idiomas es obligatoria: una clave que existe en el base y no en una traducción cae en fallback silencioso.
+- **Manager**: singleton que expone un indexer por clave `[Clave]` y una propiedad de cultura; al cambiarla notifica (`PropertyChanged`) para re-enlazar los Bindings.
+- **Markup**: una `IMarkupExtension<BindingBase>` en namespace propio que devuelve un `Binding` al indexer del manager, usada como `{ext:Translate Clave}`.
+
+```csharp
+// Devuelve un Binding enlazado al indexer del manager.
+public BindingBase ProvideValue(IServiceProvider serviceProvider)
+{
+    return new Binding
+    {
+        Mode = BindingMode.OneWay,
+        Path = $"[{Name}]",
+        Source = LocalizationManager.Instance
+    };
+}
+```
+
+**Gotcha verificada**: la markup extension devuelve un **`Binding`**. Usarla SOLO en propiedades bindables (`Text`, `Title`, `ToolTip`, ...). En propiedades no enlazables (p. ej. valores estáticos, `Source`, colecciones) no aplica o falla silenciosamente.
+
+**Reglas**:
+- Un `View`/`Page` que muestre cadenas debe consumir las claves vía markup; nunca hardcodear textos visibles.
+- El cambio de idioma persiste (`Preferences`) y se aplica con `CultureInfo`; las claves nuevas se agregan a TODOS los idiomas a la vez.
+- Toda clave usada en XAML debe existir en el `.resx` base, o compilar con recursos conectados fallará la búsqueda en runtime.
+
+### 11.10 Versionado de app (.csproj)
+
+- **`ApplicationDisplayVersion`**: versión visible/marketing (`1.0.1`). Texto libre; Android/iOS aceptan `major.minor.patch`.
+- **`ApplicationVersion`**: número interno de build. Las tiendas lo usan para detectar actualizaciones; **subir en CADA publicación** (debe incrementar, nunca bajar/reciclar).
+- **Única fuente de verdad**: el `.csproj`. Leer en runtime con `AppInfo` (`AppInfo.Current.VersionString`/`BuildString`) vía un servicio wrapper (`IAppInfoService`) en Core + implementación en MAUI.
+- **Nunca** duplicar la versión en constantes o hardcoded en la UI (p. ej. "Beta: v1.0.0"): diverge del `.csproj`.
+
+### 11.11 Audio: efectos cortos vs música (baja latencia)
+
+`MediaElement` (ExoPlayer/AVPlayer) y plugins como `Plugin.Maui.Audio` son correctos para música/larga duración, pero tienen **latencia relevante para clics** (el issue jfversluis/Plugin.Maui.Audio#89 documenta 150-200 ms incluso con player precargado). Regla:
+
+| Caso de uso | Motor recomendado |
+|-------------|-------------------|
+| Música, reproducción larga, notas de instrumento | `MediaElement` |
+| Clics/efectos cortos y precisos | APIs nativas de baja latencia |
+
+APIs de baja latencia disponibles sin dependencias nuevas:
+
+- **Android**: `Android.Media.SoundPool` — decodifica PCM a memoria al cargar (sin CPU/latencia de decompresión por reproducción); `Play()` dispara rápido. Pensado para efectos cortos.
+- **iOS**: `AudioToolbox.SystemSound` — "sound plays immediately"; PCM/IMA4 `.wav` ≤ 30 s; para efectos de sonido.
+- **Windows**: `MediaElement` como fallback aceptable.
+
+**Patrón de implementación** (sin plugins):
+
+```csharp
+// Core
+public interface IShortSoundPlayer
+{
+    void Play(bool accent);
+}
+
+// MAUI (implementación única por TFM con #if)
+public partial class ShortSoundPlayer : IShortSoundPlayer
+{
+    public void Play(bool accent)
+    {
+#if ANDROID
+        _soundPool?.Play(accent ? _accentSoundId : _normalSoundId, 1f, 1f, 1, 0, 1f);
+#elif IOS || MACCATALYST
+        (accent ? _accentSound : _normalSound)?.PlaySystemSound();
+#else
+        // fallback MediaElement
+#endif
+    }
+}
+```
+
+**Reglas**: precargar la muestra UNA vez (no recargar por cada tick); el playback nunca debe esperarse dentro del loop del scheduler (§11.7); si el proyecto usa Core puro, la interfaz vive en Core y la implementación por plataforma en el proyecto MAUI.
+
+### 11.12 Reuso y convenciones para biblioteca de componentes
+
+- **Colores/estilos con `AppThemeBinding`** desde el origen: todo recurso visual declara variante claro/oscuro; nunca un color fijo para ambos temas.
+- **Converters centralizados**: todo converter vive en un único lugar y se reutiliza; el estado visual binario se resuelve por binding, no por DataTriggers (§11.8). Antes de escribir uno nuevo, verificar si ya existe uno equivalente.
+- **Componentes autocontenidos** (1 control = 1 archivo + partial class si requiere código) con inyección por `BindableProperty` (§11.5), nunca Service Locator.
+- Si hay 3+ apps MAUI que comparten estilos/converters/localización/servicios wrapper, extraerlos a una **librería compartida** (`Toolkit.Core` maUI-free + `Toolkit.Maui`) consumida por referencia de proyecto; recién evaluar NuGet cuando la distribución lo justifique.
+
+### 11.13 Permisos Android: mínimo privilegio y APIs sin permisos protegidos
+
+- Declarar en el manifest **solo lo mínimo**; verificar siempre el manifest **fusionado** (`obj/.../AndroidManifest.xml`) porque NuGets inyectan permisos por su cuenta (p. ej. `CommunityToolkit.Maui` agrega `INTERNET`). Para permisos *normal* (no proteger la vida del usuario ni datos), no vale la pena pelear el merge de Gradle.
+- **Gotcha**: `Battery.Default` de MAUI exige en Android el permiso **`BATTERY_STATS`** (protegido `signature|privileged`, red flag en el review de Play y rechazado en políticas). No se re-agrega el permiso: se lee la API de plataforma que no lo requiere.
+- Patrón de lectura sin permisos (síncrono, API 21+, `#if ANDROID` + fallback MAUI en otras plataformas):
+
+```csharp
+public static int GetBatteryLevel(Android.Content.Context ctx) =>
+    ctx.GetSystemService(Android.Content.Context.BatteryService) is Android.OS.BatteryManager bm
+        ? bm.GetIntProperty((int)Android.OS.BatteryProperty.Capacity)
+        : -1;
+```
+
+  Compatibilidad: contra API obsoletas, el compilador suele sugerir el reemplazo (p. ej. `BatteryProperty` enum en vez de `BatteryManager.BatteryPropertyCapacity`).
+
+### 11.14 Empaquetado Android: ABIs con `RuntimeIdentifiers`
+
+- `AndroidSupportedAbis` quedó **obsoleta** en .NET 10 / Android SDK 36 (warning XA0036): no aplica los ABIs. Reemplazo: `RuntimeIdentifiers` (RID → ABI) limitados al target Android para no afectar Windows/MacCatalyst.
+
+```xml
+<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+  <RuntimeIdentifiers>android-arm;android-arm64;android-x64</RuntimeIdentifiers>
+</PropertyGroup>
+```
+
+- RID → ABI: `android-arm` = `armeabi-v7a` (32-bit), `android-arm64` = `arm64-v8a`, `android-x64` = `x86_64`. Un single APK cubre todos los dispositivos; Play entrega AAB y genera el APK por dispositivo.
+- Validar en dispositivo real: `adb shell getprop ro.product.cpu.abi`. Dispositivos budget pueden correr **solo 32-bit** (caso real: Galaxy A11 `SM-A115M`, Android 12, `armeabi-v7a`); un APK sin ese ABI falla con "app no compatible" (`INSTALL_FAILED_NO_MATCHING_ABIS`).
+- Los builds **Debug** de MAUI apuntan a `x86_64` (emulador): no instalar en teléfonos reales; firmar y probar un APK **Release**.
+
+### 11.15 Firma, licencias y Release para Play Store
+
+**Firma de paquete (keystore)**:
+- Los secretos de firma **nunca van en el código ni en el `.csproj`**. Usar **Properties → Android Firma de Paquete** escribe `AndroidSigningKeyPass`/`AndroidSigningKeyStore` en el `.csproj`, que **se versiona** → contraseñas públicas. Preferir el flujo **Archive → Ad Hoc** de Visual Studio (perfil de firma fuera del proyecto) o pasar las properties por línea de comandos/CI (`-p:AndroidKeyStore=true -p:AndroidSigningKeyStore=... -p:AndroidSigningKeyAlias=... -p:AndroidSigningKeyPass=... -p:AndroidSigningStorePass=...`).
+- El keystore (`.keystore`/`.jks`/`.p12`) se guarda **fuera del repositorio**, con backup en otro disco o gestor de contraseñas. Perderlo = no poder actualizar la app en Play. `.gitignore` debe excluir `*.keystore`, `*.jks`, `*.p12`, `*.key`.
+- Validez: **mínimo 25 años** en `keytool` (`-validity 9125`); se recomienda 100 años (`36500`). El diálogo de VS pregunta validez en días.
+- **Contrato**: el keystore del APK de prueba debe ser el **mismo** que el del AAB final (si no, Play rechaza la actualización).
+- Play **no acepta APK**: se sube un **AAB** firmado (Release con `AndroidPackageFormat` aab por defecto; APK de prueba con `-p:AndroidPackageFormat=apk`). Activar **Play App Signing**: el keystore propio es solo la *upload key*; Google firma los APK finales.
+
+**Licencias de componentes comerciales**:
+- La clave se **inyecta en build como `AssemblyMetadata`** (propiedad de MSBuild pasada por línea de comandos o variable de entorno de la máquina) y se lee por reflexión en `MauiProgram.cs` solo si trae valor. **Nunca hardcodear ni versionar la clave**. Separar de la CI/CD cuando corresponda.
+- Diferenciar **Trial** (con expiración y aviso en runtime) de la **licencia gratuita definitiva** (sin expirar, sujeta a los límites de ingresos y tamaño de equipo que declare el proveedor). Verificar el tipo en el panel de cuentas del proveedor; no publicar en producción con clave trial.
+
+### 11.16 Android edge-to-edge (API 35+): barras del sistema
+
+> ⚠️ **Actualizado a .NET 10 (esto desplazó a lo que sigue)**. En **.NET 10 el mecanismo cambió**: (a) el opt-out por atributo de tema `android:windowOptOutEdgeToEdgeEnforcement` **dejó de ser soportado en Android 16** (el opt-out fue eliminado y el edge-to-edge es obligatorio), y (b) la forma soportada de manejar los insets es la propiedad **`SafeAreaEdges`**. Además, **desde .NET 10 `ContentPage` usa `SafeAreaEdges="None"` por defecto** (en .NET 9 se comportaba como `Container`, es decir, el contenido esquivaba las barras del sistema): por eso una app migrada a .NET 10 puede quedarse con contenido debajo de la barra de estado o de navegación sin ningún error de compilación. Referencia: <https://learn.microsoft.com/en-us/dotnet/maui/user-interface/safe-area?view=net-maui-10.0>.
+>
+> **Regla para .NET 10**: si la app no quiere edge-to-edge, declarar `SafeAreaEdges="Container"` (o `All`) explícitamente en las `ContentPage` o en un estilo global de `App.xaml`; **no** depender del opt-out por tema. MAUI 10.x ya trae `maui_edgetoedge_optout=true` en `Maui.MainTheme.Base` (verificable con `aapt2 dump resources` sobre el APK), pero eso solo desactiva la **imposición** del sistema, no el manejo de insets.
+>
+> Lo que sigue es el patrón **de la era .NET 9** (tema + color de barras sin llamadas en runtime) y **aplica al otro proyecto**; no replicarlo en .NET 10 sin revisar lo anterior. Los "gotchas" de compilación y de diálogos de fecha/hora sí son reutilizables.
+
+Con `targetSdk` 35+, Android 15+ fuerza edge-to-edge y el sistema **ignora** `Window.SetStatusBarColor`/`SetNavigationBarColor` (obsoletas desde API 35; el compilador lo advierte con CA1422). Decisión del proyecto: **optar por NO aplicar edge-to-edge**, manteniendo barras opacas `#243042` consistentes en todos los Android (incluidos 15/16). Reglas validadas:
+
+- En el tema MAUI (`Platforms/Android/Resources/values/styles.xml`), el tema `Maui.MainTheme` (parent `Maui.MainTheme.Base`). El color de ambas barras se define **en el tema, no en runtime**:
+
+```xml
+<style name="Maui.MainTheme" parent="Maui.MainTheme.Base">
+    <item name="android:statusBarColor">#243042</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:navigationBarColor">#243042</item>
+    <item name="android:windowLightNavigationBar">false</item>
+    <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+</style>
+```
+
+- Con el opt-out activo, la app queda en modo legacy y **el tema aplica los colores en todas las versiones** (incluidas Android 15/16).
+- **No usar `Window.SetStatusBarColor`/`SetNavigationBarColor` en runtime**: además de deprecadas desde API 35, Google Play avisa "la app usa APIs o parámetros obsoletos para la pantalla de borde a borde"; definir el color en el tema no dispara ese aviso y evita el `#pragma` CA1422.
+
+- El style `MauiAppBarLayout` (parent `ThemeOverlay.AppCompat.Dark.ActionBar`, `android:background` `#243042`) se **mantiene**: es el toolbar superior de MAUI, no la franja del edge-to-edge.
+- **Gotcha**: una línea `<AndroidResource Remove="..."/>` en el `.csproj` excluye el recurso del build **sin error**; verificar siempre el recurso compilado en `obj/.../res/values/*.xml`.
+- **Diálogos `DatePicker`/`TimePicker`**: los botones OK/Cancel se pintan con `colorAccent`, y cambiarlo colorea todos los controles de la app. Alternativa mínima: handler de MAUI que pise `CreateDatePickerDialog`/`CreateTimePickerDialog` y pinte en `ShowEvent` (los botones no existen antes del `Show()`):
+
+```csharp
+dialog.ShowEvent += (_, _) =>
+{
+    dialog.GetButton((int)DialogButtonType.Positive)?.SetTextColor(AndroidColor.ParseColor("#FF990A"));
+    dialog.GetButton((int)DialogButtonType.Negative)?.SetTextColor(AndroidColor.ParseColor("#FF990A"));
+};
+```
+
+  Registrar con `ConfigureMauiHandlers`/`AddHandler` bajo `#if ANDROID` cuando el csproj es multi-target.
+- **Gotchas de compilación**: `Microsoft.Maui.Hosting` ya es global using (no declararlo); para `Android.Graphics.Color` usar alias en archivos bajo `Platforms/Android` (ambigüedad con `Microsoft.Maui.Graphics.Color` y namespace `.Android.` resuelto como relativo).
+- **Verificar en dispositivo real**: el edge-to-edge solo aplica en Android 15+; un emulador de versión menor no reproduce el síntoma.
 
 ---
 
-## 13. Tests
+### 11.17 Recordatorios programados (notas y listas de tareas)
 
-- **xUnit v3 + `Microsoft.AspNetCore.Mvc.Testing`** (`WebApplicationFactory<T>`) para tests de integración HTTP del pipeline completo (filtros, rate limiting, headers, auth).
-- **Fixtures con `IAsyncLifetime` implementan `ValueTask`** en xUnit v3 (no `Task`).
-- Probar **contra BD real** (o instancia de prueba) para validar DTO → SP → respuesta completa; **no mockear repositorios** para probar la API.
-- **Regla de no tocar datos ajenos**: los tests crean sus propios registros y los limpian **por ID propio** en `DisposeAsync` (SQL directo), nunca `DROP`/truncado de tablas ni borrado de datos existentes.
-- **Aislamiento por IP**: cada test HTTP usa una **IP única y secuencial** (`192.0.2.{200 + contador}`) — nunca `Random` — para no colisionar con rate limiter/lockout (comparten el servidor del fixture).
-- **Serializar tests que comparten BD**: colección xUnit con `DisableParallelization = true` (`[CollectionDefinition("Database", DisableParallelization = true)]` + `[Collection("Database")]` en las clases) para evitar carreras (p.ej. flags globales tipo `IsEnableRegister=0`).
+Implementación propia por plataforma, sin NuGet: `IReminderScheduler` en Core (recibe `ReminderKind` + `Id` de la entidad) y `ReminderScheduler` en MAUI con `#if ANDROID` (`AlarmManager.SetAndAllowWhileIdle` + receiver + `NotificationChannel`) / `#elif IOS || MACCATALYST` (`UNUserNotificationCenter`) / no-op en Windows. Reglas validadas:
+
+- **Gotcha de scope de IDs (crítico)**: las tablas autoincrement independientes comparten valores de `Id` (la nota Id=3 y la lista Id=3). El `PendingIntent` de Android compara `requestCode` y **ignora los extras**, y iOS usa el `identifier` → sin scope, un recordatorio pisa al otro. Mapear siempre por tipo:
+
+```csharp
+static int ToNotificationId(ReminderKind kind, int id) => ((int)kind << 24) | (id & 0x00FFFFFF);
+static string ToNotificationKey(ReminderKind kind, int id) => $"{kind}:{id}";   // iOS identifier
+```
+
+  El receiver recibe el id ya scopeado en el extra (el action+extras no distinguen suficientemente a los PendingIntents).
+- **Disparo único e inexacto**: `SetAndAllowWhileIdle` sin `SCHEDULE_EXACT_ALARM`; permiso `POST_NOTIFICATIONS` (API 33+) solicitado antes de agendar y **bloquear el guardado** si se niega, en vez de fallar en silencio.
+- **Ciclo de vida**: cancelar explícitamente al borrar la entidad; persistir `ReminderAt` en la entidad para restaurar la UI. sqlite-net agrega la columna con `ALTER TABLE ADD COLUMN` al abrir bases existentes (verificar con una base preexistente).
+- **Diferencias platform**: Android convierte hora local a UTC y **pierde las alarmas al reiniciar** (sin `BOOT_COMPLETED`); iOS conserva las pendientes entre reinicios. Tocar la notificación abre la app (sin deep link) salvo que se implemente uno aparte.
+
+### 11.18 Publicación y métrica DEX de Google Play (ofuscación/R8)
+
+Google Play anunció (ago-2026) un requisito de calidad técnica: las apps deben lograr **≥25% de optimización, ofuscación y shrinking del código DEX** ("DEX code optimisation"). Puntos validados para .NET MAUI:
+
+- **Plazo**: es un requisito *upcoming*; la aplicación del umbral comienza en **febrero 2027**. Hasta entonces es una advertencia informativa en Play Console que **no bloquea** subidas ni revisión de producción (la pista de internal testing la muestra igual; no indica un defecto de la app).
+- **Cuándo aplica**: solo a apps con **≥10 MB de DEX sin comprimir**. Verificarlo en el bundle: `unzip -l app.aab | grep -E '\.dex$'` y sumar el tamaño *uncompressed* de `classes*.dex`. En esta app ~21 MB → la métrica aplica.
+- **No corregible desde el proyecto**: .NET for Android fija R8 con `-dontobfuscate` incondicional, así que la ofuscación queda en 0% por diseño. No hay propiedad de MSBuild ni configuración de ProGuard que la suba, y no aporta "emparcharla" de otra forma. Es un límite del toolchain (issue `dotnet/android#12535`); .NET 11/CoreCLR tampoco lo resuelve por sí solo.
+- **Acción correcta**: ignorar la advertencia hasta la fecha de enforcement, documentarla como limitación conocida (§11.18) y vigilar el issue de Microsoft. Si en el futuro se habilita la ofuscación, medir DEX antes/después y decidir ahí.
+- **No confundir** con otras métricas de app quality sí accionables y exigibles hoy: targetSdk 36, soporte 64-bit y alineación a 16 KB pages.
+
+### 11.19 Publicación: minSdkVersion ≥ 24 (protección automática de Play)
+
+- Google Play rechaza la subida si el manifest declara `minSdkVersion < 24`, con el error: "La protección automática de Play requiere una versión mínima del SDK de 24 o una versión posterior".
+- En .NET MAUI se controla con **`SupportedOSPlatformVersion`** (solo para la plataforma android; no toca iOS/MacCatalyst/Windows). Con `21.0` el manifest sale `android:minSdkVersion="21"` y Play lo bloquea.
+- Verificar en el manifest generado (`obj/.../AndroidManifest.xml`): `android:minSdkVersion="24"`.
+- Sin pérdida real de dispositivos: API 24 = Android 7.0. No confundir con `targetSdkVersion` (requisito distinto; aquí ya es 36).
+
+---
+
+## 12. Tests
+
+- **xUnit + `WebApplicationFactory<T>`** para tests de integración de la API.
+- Probar **contra BD real** (o instancia de prueba) para validar DTO → SP → respuesta completa.
 - Verificar el **envelope**: `IsSuccess`, `StatusCode`, `Message` correctos para éxito, 400, 401, 404, 429 y 500.
-- Cubrir con HTTP tests los casos de contrato: vínculo de identidad (JWT de A + token de B → 401), ApiKey ausente/incorrecta (401), rate limit (6º request → 429), 404 uniforme, security headers presentes.
-
-### Comando (`dotnet test` según la versión de SDK)
-
-- **SDK .NET 9 o anterior**: `dotnet test` normal.
-- **SDK .NET 10 (modo MTP)**: con `global.json` en la raíz con
-  ```json
-  { "test": { "runner": "Microsoft.Testing.Platform" } }
-  ```
-  el comando válido es **`dotnet test --project <csproj>`**. NO usar argumentos posicionales ni `--nologo`/`-v q` (rompen el modo MTP con exit code 5). El runner descubre y ejecuta igual.
-
-> Los comandos de tests no se ejecutan sin autorización explícita del usuario (reglas del repo).
+- No mockear repositorios para probar la API: el valor está en el flujo real.
+- Comando: `dotnet run --project NavajaSuiza.Test/NavajaSuiza.Test.csproj` (no ejecutar sin autorización del usuario según las reglas del repo). La suite usa xUnit.net v3 con runner in-process; `dotnet test` no es compatible con el SDK de .NET 10.
 
 ---
 
-## 14. Checklist final
+## 13. Checklist final
 
 - [ ] Estructura Clean Architecture con dependencias en una sola dirección.
-- [ ] Contrato de respuestas consistente: por defecto éxito = DTO + error = `ProblemDetails` (RFC 9457); envelope `ApiResponse<T>` solo con requisito explícito.
+- [ ] Contrato de respuesta **uniforme**: en este proyecto, `ProblemDetails` (RFC 9457) en todos los errores y DTO plano en el éxito (sin envelope `ApiResponse<T>`).
 - [ ] `GlobalExceptionHandler` central: log + 500 genérico, sin fuga de internos.
-- [ ] 400 estándar vía `InvalidModelStateResponseFactory` (`ValidationProblemDetails`).
-- [ ] Contraseñas con PBKDF2 + salt + iteraciones; verificación en tiempo constante.
-- [ ] JWT con `ClockSkew=0`, issuer/audience validados, generación con `JsonWebTokenHandler`, key desde config.
-- [ ] ApiKey en header (nunca en query string) validada contra BD en tiempo constante y **cacheada con TTL corto**.
-- [ ] Rate limiting particionado por IP con `X-Forwarded-For` + políticas dedicadas para endpoints sensibles (login/register).
-- [ ] Lockout por IP con `TimeProvider` (ventana + duración, `429` + `Retry-After`), sin timers.
-- [ ] Security headers en rutas de API (excepto `/swagger`).
-- [ ] Health check `/health` con chequeo de BD.
-- [ ] Auditoría de eventos de seguridad (IP + email).
-- [ ] `CancellationToken` propagado en toda la cadena (controllers → services → repositories → Dapper).
+- [ ] 400 uniforme vía `InvalidModelStateResponseFactory`.
+- [ ] Contraseñas con PBKDF2 + salt + iteraciones configurables.
+- [ ] JWT con `ClockSkew=0`, issuer/audience validados, key desde config.
+- [ ] ApiKey en header (nunca en query string) validada contra BD.
+- [ ] Rate limiting particionado por IP con `X-Forwarded-For`.
 - [ ] CORS con allow-list explícita; sin `AllowAnyOrigin` en producción.
 - [ ] Fail-fast de configuración al arrancar.
-- [ ] Sin secretos hardcodeados ni en el repo (user-secrets en dev, env vars en prod, `appsettings.Example.json`).
+- [ ] No secretos hardcodeados ni en el repo.
 - [ ] Swagger con ruta absoluta y versión de Swashbuckle compatible con OpenApi (6.x/9.x vs 10.x).
 - [ ] `dotnet build` sin errores ni warnings.
-- [ ] Tests de integración + HTTP cubriendo los códigos del contrato (200/201/400/401/403/404/429/500); limpieza por ID propio; IPs únicas por test.
+- [ ] Tests de integración cubriendo los códigos del envelope.
 - [ ] Verificación real en runtime (navegador/Swagger) tras el deploy; no basta que compile.
 - [ ] Documentar decisiones relevantes en `DEVELOPMENT.md` del proyecto.
+- [ ] MAUI: ViewModels Transientes, Pages Singleton, VM resuelto en `OnNavigatedTo` o constructor DI con state service.
+- [ ] MAUI: Lógica de inicialización en `OnNavigatedTo`, no en `OnAppearing`.
+- [ ] MAUI: Components con BindableProperty, nunca Service Locator.
+- [ ] MAUI: `PeriodicTimer` en vez de `System.Timers.Timer`.
+- [ ] MAUI: `IValueConverter` con Binding directo en vez de DataTriggers para estado visual.
+- [ ] MAUI: Guard `IsBusy` en comandos de navegación para prevenir re-entrancy.
+- [ ] MAUI: `OnNavigatedTo` síncrono; fire-and-forget con try/catch si hay async, nunca `async void`.
+- [ ] MAUI: Unsubscribe de eventos de sensores antes de Stop() y en cleanup para evitar callbacks post-destrucción.
+- [ ] MAUI: Localización con resx + markup; una clave nueva se agrega en TODOS los idiomas a la vez.
+- [ ] MAUI: Versión solo en `.csproj` (Display + Build); leída con `AppInfo`; subir `ApplicationVersion` en cada publicación.
+- [ ] MAUI: Audio — efectos/clics por APIs de baja latencia (SoundPool/SystemSound); música por `MediaElement`.
+- [ ] MAUI: Colores y estilos con `AppThemeBinding` (claro/oscuro desde el origen).
+- [ ] MAUI: Permisos Android mínimos; usar APIs de plataforma sin permisos protegidos (batería con `BatteryManager`/`BatteryProperty`, no con `Battery.Default` + `BATTERY_STATS`); revisar el manifest fusionado.
+- [ ] MAUI: Empaquetado Android con `RuntimeIdentifiers` (`AndroidSupportedAbis` obsoleta en .NET 10); validar ABI en dispositivo real con `ro.product.cpu.abi` (cuidado con 32-bit).
+- [ ] MAUI: Insets del sistema en .NET 10 con `SafeAreaEdges` explícito (`Container`/`All`) en las `ContentPage` o en un estilo global; **no** depender del opt-out por tema `windowOptOutEdgeToEdgeEnforcement` (eliminado en Android 16) ni de `Window.SetStatusBarColor`/`SetNavigationBarColor` en runtime (obsoletas en API 35, aviso de Play de APIs obsoletas). Patrón de la era .NET 9 (tema + color de barras) y botones de diálogos de fecha/hora vía handler: §11.16.
+- [ ] MAUI: Recordatorios programados con IDs scopeados por tipo de entidad en requestCode/id de notificación (`(kind << 24) | id`), cancelación al borrar y permiso `POST_NOTIFICATIONS` antes de agendar (§11.17).
+- [ ] Publicación: advertencia de ofuscación/DEX de Play **no corregible** en .NET MAUI (límite del toolchain); ignorar hasta feb-2027 y verificar el resto de métricas accionables (targetSdk, 64-bit, 16 KB pages) (§11.18).
+- [ ] Publicación: Play Protect exige `minSdkVersion ≥ 24`; se controla con `SupportedOSPlatformVersion` (solo android), no con targetSdk (§11.19).
 
 ---
 
-## 15. Anti-patrones generales (resumen rápido)
+## 14. Anti-patrones generales (resumen rápido)
 
 | Anti-patrón | Solución |
 |-------------|----------|
 | Todo en un solo proyecto API | Clean Architecture por capas |
-| Respuestas HTTP inconsistentes | DTO + `ProblemDetails` por defecto; envelope solo si hay requisito; nunca mezclar contratos |
+| Respuestas HTTP inconsistentes | Contrato único: envelope `ApiResponse<T>` (patrón genérico) o `ProblemDetails` RFC 9457 (el de este proyecto) |
 | `ex.Message` al cliente en 500 | Log + mensaje genérico |
 | Config inválida detectada en runtime | Fail-fast al arrancar |
 | Secretos en el código/repo | Config/secrets del entorno |
 | `AllowAnyOrigin` / `SetIsOriginAllowed(_=>true)` | Allow-list explícita |
 | Hash sin salt o MD5/SHA para contraseñas | PBKDF2 con salt (KDF) |
-| Comparar credenciales con `==` | `CryptographicOperations.FixedTimeEquals` |
-| `JwtSecurityTokenHandler` para generar tokens | `JsonWebTokenHandler` |
-| Lógica de login en un SP | Consultas de lectura en C#; SPs solo para escrituras críticas con contrato |
-| Token sensible en query string (`?token=...`) | Header (X-Api-Key, X-SqlToken...) |
-| Rate limit global sin partición por IP | `RateLimitPartition` + partición por IP |
-| Timer para limpiar/expirar lockout | `TimeProvider` + lazy cleanup |
 | Fire-and-forget / `async void` | `async Task` + manejo central |
+| `async void OnNavigatedTo` con await de sensores | Síncrono + fire-and-forget con try/catch |
 | `catch {}` vacío | Log + estado visible en UI |
 | `HttpClient` nuevo por llamada | Singleton inyectado |
 | SSL bypass en el cliente | Trust del SO; nunca `_ => true` |
-| Métodos async sin `CancellationToken` | Propagar `CancellationToken` en toda la cadena |
-| `Random` para IPs/IDs de tests | Contador secuencial / `RandomNumberGenerator` |
-| Migrar de versión sin revisar breaking changes | Verificar matriz de versiones (p.ej. OpenApi 2.x, MTP en .NET 10) antes del upgrade |
+| Migrar de versión sin revisar breaking changes | Verificar matriz de versiones (p.ej. OpenApi 2.x) antes del upgrade |
 
 ---
 
-## 16. Referencias del patrón validado
+## 15. Referencias del patrón validado
 
-- **Patrón validado**: Clean Architecture + Dapper + JWT + ApiKey + rate limit + lockout + envelope/ProblemDetails + security headers + health checks, con tests de integración contra BD real y tests HTTP con `WebApplicationFactory`. En proyectos nuevos se recomienda DTO + `ProblemDetails`; el envelope `ApiResponse<T>` queda reservado a contratos legacy ya consumidos.
-- **Comandos de test por versión de SDK**: `dotnet test` normal en SDK ≤ .NET 9; en SDK .NET 10 (modo MTP) `dotnet test --project <csproj>`.
+- **Repo de referencia**: `WebApiCore` (Clean Architecture + Dapper + JWT + ApiKey + rate limit + envelope) — deployado y operativo.
+- **Migration .NET 10**: `PasswordManager_.NET10` — port del mismo patrón con OpenApi 2.x (Swashbuckle 10.x).
 - **Config de despliegue**: connection string de producción por entorno, fail-fast, CORS por allow-list.
 - **Documentación**: ver `DEVELOPMENT.md` del proyecto para decisiones de diseño y alternativas descartadas.

@@ -1,4 +1,4 @@
-﻿using WebApiPM.Application.DTOs;
+using WebApiPM.Application.DTOs;
 using WebApiPM.Application.Services;
 using WebApiPM.Infrastructure.Repositories;
 using WebApiPM.Tests.Helpers;
@@ -30,7 +30,7 @@ public class CoreDataServiceTests : IntegrationTestBase
         Assert.True(insertResult.IsSuccess);
         Assert.Equal(201, insertResult.StatusCode);
 
-        var getAllResult = await service.GetAllAsync(userId, coreUser, CancellationToken.None);
+        var getAllResult = await service.GetAllAsync(userId, coreUser.SqlToken, CancellationToken.None);
 
         Assert.True(getAllResult.IsSuccess);
         Assert.Contains(getAllResult.Data!, x => x.Data_Id == insertResult.Data!.Data_Id);
@@ -43,7 +43,7 @@ public class CoreDataServiceTests : IntegrationTestBase
 
         var result = await service.GetAllAsync(
             Guid.NewGuid(),
-            new CoreUserRequest { User_Id = Guid.NewGuid(), SqlToken = Guid.NewGuid() },
+            Guid.NewGuid(),
             CancellationToken.None);
 
         Assert.Equal(401, result.StatusCode);
@@ -75,7 +75,7 @@ public class CoreDataServiceTests : IntegrationTestBase
 
         Assert.True(updateResult.IsSuccess);
 
-        var getAllResult = await service.GetAllAsync(userId, coreUser, CancellationToken.None);
+        var getAllResult = await service.GetAllAsync(userId, coreUser.SqlToken, CancellationToken.None);
         Assert.Contains(getAllResult.Data!, x => x.Data_Id == insertResult.Data.Data_Id && x.Data01 == "x");
     }
 
@@ -102,7 +102,7 @@ public class CoreDataServiceTests : IntegrationTestBase
 
         Assert.True(deleteResult.IsSuccess);
 
-        var getAllResult = await service.GetAllAsync(userId, coreUser, CancellationToken.None);
+        var getAllResult = await service.GetAllAsync(userId, coreUser.SqlToken, CancellationToken.None);
         Assert.DoesNotContain(getAllResult.Data!, x => x.Data_Id == insertResult.Data.Data_Id);
     }
 }

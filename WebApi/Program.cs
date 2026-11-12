@@ -64,7 +64,25 @@ builder.Services.AddKeyedSingleton<IIpLockoutService>("api-key", (_, _) =>
 builder.Services.AddScoped<ApiKeyFilter>();
 
 // ======================================================================
-// Health checks (liveness + BD)
+// Forwarded headers (IP real del cliente tras proxies de confianza)
+// Los proxies autorizados a inyectar X-Forwarded-For/Proto se declaran en
+// configuracion (ForwardedHeaders:KnownProxies + ForwardLimit). El runtime,
+// no la aplicacion, reemplaza RemoteIpAddress desde ese header SOLO cuando el
+// emisor es un proxy conocido: un cliente que llame directo no puede forjar
+// la IP que alimenta rate limit, lockout y Retry-After.
+// ======================================================================
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    builder.Configuration.GetSection("ForwardedHeaders").Bind(options);
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+});
+
+// ======================================================================
+// Health checks (liveness separado de readiness)
+// /health/live  -> solo el proceso (sin dependencias)
+// /health/ready -> proceso + BD (SqlHealthCheck)
+// /health       -> alias de readiness (compatibilidad)
 // ======================================================================
 builder.Services.AddHealthChecks().AddCheck<SqlHealthCheck>("sql");
 
@@ -82,8 +100,7 @@ builder.Services.AddTransient<ICoreDataRepository, CoreDataRepository>();
 builder.Services.AddTransient<IAuthUserService, AuthUserService>();
 builder.Services.AddTransient<IMaeConfigService>(sp =>
     new MaeConfigService(
-        sp.GetRequiredService<IMaeConfigRepository>(),
-        TimeSpan.FromSeconds(builder.Configuration.GetValue("ApiKeyCache:ExpirationSeconds", 30))));
+        sp.GetRequiredService<IMaeConfigRepository>()));
 builder.Services.AddTransient<ICoreUserService, CoreUserService>();
 builder.Services.AddTransient<ICoreDataService, CoreDataService>();
 
@@ -262,12 +279,7 @@ var app = builder.Build();
 // ======================================================================
 // Pipeline HTTP
 // ======================================================================
-app.UseForwardedHeaders(new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
-    ForwardedForHeaderName = "X-Forwarded-For",
-    ForwardedProtoHeaderName = "X-Forwarded-Proto"
-});
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 
@@ -279,20 +291,42 @@ app.UseRateLimiter();
 
 // ======================================================================
 // Swagger
+// Solo en Development: en produccion el mapa completo de la API seria
+// publico (no requiere ApiKey) y le sirve al atacante la lista de
+// endpoints, headers y esquemas.
 // ======================================================================
-app.UseSwagger();
-app.UseSwaggerUI(options =>
+if (app.Environment.IsDevelopment())
 {
-    options.RoutePrefix = string.Empty;
-    options.SwaggerEndpoint("/swagger/v1/swagger.json", "WebApi v1");
-    options.DisplayRequestDuration();
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.RoutePrefix = string.Empty;
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "WebApi v1");
+        options.DisplayRequestDuration();
+    });
+}
 
 app.UseCors("_allowedOrigins");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-app.MapHealthChecks("/health");
+
+// ======================================================================
+// Health checks
+// Liveness: solo proceso vivo (predicado vacio -> no ejecuta checks).
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false
+}).AllowAnonymous();
+
+// Readiness: proceso + dependencias (SqlHealthCheck).
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => true
+}).AllowAnonymous();
+
+// Alias de readiness para no romper contratos previos.
+app.MapHealthChecks("/health").AllowAnonymous();
 
 // ======================================================================
 // 404 uniforme (ApiResponse)

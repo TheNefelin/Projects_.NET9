@@ -1,4 +1,4 @@
-﻿using WebApiPM.Application.DTOs;
+using WebApiPM.Application.DTOs;
 using WebApiPM.Application.Services;
 using WebApiPM.Infrastructure.Repositories;
 using WebApiPM.Infrastructure.Security;
@@ -22,7 +22,7 @@ public class CoreUserServiceTests : IntegrationTestBase
 
         var registerResult = await service.RegisterCoreUserPasswordAsync(
             userId,
-            new CoreUserPassword { Password = "SecretPM", CoreUser = coreUser },
+            new CoreUserPasswordCreate { Password = "SecretPM", CoreUser = coreUser },
             CancellationToken.None);
 
         Assert.True(registerResult.IsSuccess);
@@ -60,14 +60,14 @@ public class CoreUserServiceTests : IntegrationTestBase
 
         var first = await service.RegisterCoreUserPasswordAsync(
             userId,
-            new CoreUserPassword { Password = "SecretPM", CoreUser = coreUser },
+            new CoreUserPasswordCreate { Password = "SecretPM", CoreUser = coreUser },
             CancellationToken.None);
 
         Assert.True(first.IsSuccess);
 
         var second = await service.RegisterCoreUserPasswordAsync(
             userId,
-            new CoreUserPassword { Password = "SecretPM", CoreUser = coreUser },
+            new CoreUserPasswordCreate { Password = "SecretPM", CoreUser = coreUser },
             CancellationToken.None);
 
         Assert.False(second.IsSuccess);
@@ -83,7 +83,7 @@ public class CoreUserServiceTests : IntegrationTestBase
 
         var registerResult = await service.RegisterCoreUserPasswordAsync(
             userId,
-            new CoreUserPassword { Password = "CorrectPassword", CoreUser = coreUser },
+            new CoreUserPasswordCreate { Password = "CorrectPassword", CoreUser = coreUser },
             CancellationToken.None);
 
         Assert.True(registerResult.IsSuccess);

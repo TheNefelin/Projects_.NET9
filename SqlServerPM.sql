@@ -1,12 +1,15 @@
 -- =====================================================================
--- Esquema consolidado (Auth + CORE / Password Manager)
+-- WebApiPM - Esquema consolidado (Auth + CORE / Password Manager)
 -- =====================================================================
 -- Uso: ejecutar contra la BD de destino (db_testing en local o la BD de
---      producción en el hosting). El script reconstruye el esquema desde
+--      produccion en el hosting). El script reconstruye el esquema desde
 --      cero (DROP + CREATE), por lo que es seguro ejecutarlo de nuevo.
 --
--- NOTA: no incluye CREATE DATABASE / LOGIN porque son específicos del
--- entorno. Para recrear db_testing en local:
+-- ATENCION: este script BORRA las tablas. Solo usarlo para una instalacion
+--      limpia; nunca contra una base que ya tenga datos.
+--
+-- NOTA: no incluye CREATE DATABASE / LOGIN porque son especificos del
+--      entorno. Para recrear db_testing en local:
 --
 --   CREATE LOGIN testing WITH PASSWORD = 'testing', CHECK_POLICY = OFF;
 --   GO
@@ -20,7 +23,7 @@
 --
 -- =====================================================================
 
--- Drops (reconstrucción limpia) ---------------------------------------
+-- Drops (reconstruccion limpia) ---------------------------------------
 IF OBJECT_ID('dbo.Auth_Register', 'P') IS NOT NULL DROP PROCEDURE dbo.Auth_Register;
 GO
 IF OBJECT_ID('dbo.Auth_Login', 'P') IS NOT NULL DROP PROCEDURE dbo.Auth_Login;
@@ -56,7 +59,10 @@ CREATE TABLE dbo.Auth_Users (
     SaltLogin VARCHAR(256) NOT NULL,
     HashPM VARCHAR(256),
     SaltPM VARCHAR(256),
-    SqlToken UNIQUEIDENTIFIER,
+    -- Token de sesion (SqlToken). Se guarda SOLO su SHA-256 en hexadecimal
+    -- (64 chars); el token crudo nunca se persiste. Se genera en C# al
+    -- iniciar sesion.
+    SqlTokenHash VARCHAR(64),
     Profile_Id INT NOT NULL,
     FOREIGN KEY (Profile_Id) REFERENCES dbo.Auth_Profiles(Profile_Id)
 );
@@ -79,68 +85,12 @@ INSERT INTO dbo.Auth_Profiles (Profile_Id, Name) VALUES (1, 'ADMIN'), (2, 'USER'
 SET IDENTITY_INSERT dbo.Auth_Profiles OFF;
 GO
 
--- ApiKey del entorno local; en producción reemplazar por el valor real.
+-- ApiKey del entorno local; en produccion reemplazar por el valor real.
 SET IDENTITY_INSERT dbo.Mae_Config ON;
 INSERT INTO dbo.Mae_Config (Config_Id, ApiKey, IsEnableRegister) VALUES (1, 'Testing-777', 1);
 SET IDENTITY_INSERT dbo.Mae_Config OFF;
 GO
 
--- Stored Procedures ----------------------------------------------------------
-
-CREATE PROCEDURE dbo.Auth_Register
-    @User_Id UNIQUEIDENTIFIER,
-    @Email VARCHAR(100),
-    @HashLogin VARCHAR(256),
-    @SaltLogin VARCHAR(256)
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    IF 0 = (SELECT ISNULL(IsEnableRegister, 0) FROM dbo.Mae_Config WHERE Config_Id = 1)
-    BEGIN
-        SELECT 0 AS IsSuccess, 401 AS StatusCode, 'El Servicio de Registro No Esta Disponible' AS Message
-        RETURN
-    END
-
-    IF EXISTS (SELECT User_Id FROM dbo.Auth_Users WHERE Email = @Email)
-    BEGIN
-        SELECT 0 AS IsSuccess, 400 AS StatusCode, 'El Usuario ya Existe' AS Message
-        RETURN
-    END
-
-    BEGIN TRY
-        INSERT INTO dbo.Auth_Users (User_Id, Email, HashLogin, SaltLogin, Profile_Id)
-        VALUES (@User_Id, @Email, @HashLogin, @SaltLogin, 2)
-
-        SELECT 1 AS IsSuccess, 201 AS StatusCode, 'Usuario Registrado Correctamente' AS Message
-    END TRY
-    BEGIN CATCH
-        SELECT 0 AS IsSuccess, ERROR_STATE() AS StatusCode, ERROR_MESSAGE() AS Message
-    END CATCH
-END
-GO
-
--- Mantenido por paridad con el original; la API no lo usa (login se
--- resuelve en C# con GetUserByEmailAsync + NewSqlToken).
-CREATE PROCEDURE dbo.Auth_Login
-    @Email VARCHAR(100)
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    UPDATE dbo.Auth_Users SET SqlToken = NEWID() WHERE Email = @Email;
-
-    SELECT
-        a.User_Id,
-        a.Email,
-        a.HashLogin,
-        a.SaltLogin,
-        a.HashPM,
-        a.SaltPM,
-        a.SqlToken,
-        b.Name AS Role
-    FROM dbo.Auth_Users a
-        INNER JOIN dbo.Auth_Profiles b ON a.Profile_Id = b.Profile_Id
-    WHERE a.Email = @Email
-END
-GO
+-- Sin stored procedures: el registro es un INSERT parametrizado (el codigo
+-- resuelve el alta y el login en C#). El esquema queda identico al de la
+-- version .NET 10, asi que ambas APIs pueden compartir la misma base.

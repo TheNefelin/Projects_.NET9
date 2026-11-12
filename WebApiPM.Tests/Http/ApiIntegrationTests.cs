@@ -80,8 +80,10 @@ public class ApiIntegrationTests : ApiIntegrationTestBase
         var (userId, sqlToken, jwt) = await ParseLoginAsync(await LoginAsync(client, email, "Password123"));
         TrackCreatedUser(userId);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+        client.DefaultRequestHeaders.Add("SqlToken", sqlToken.ToString());
 
-        var response = await client.GetAsync($"/api/core?User_Id={userId}&SqlToken={sqlToken}", TestContext.Current.CancellationToken);
+        // El token viaja en el header, nunca en la query string.
+        var response = await client.GetAsync("/api/core", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -95,8 +97,26 @@ public class ApiIntegrationTests : ApiIntegrationTestBase
         var (userId, _, jwt) = await ParseLoginAsync(await LoginAsync(client, email, "Password123"));
         TrackCreatedUser(userId);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+        client.DefaultRequestHeaders.Add("SqlToken", Guid.NewGuid().ToString());
 
-        var response = await client.GetAsync($"/api/core?User_Id={userId}&SqlToken={Guid.NewGuid()}", TestContext.Current.CancellationToken);
+        var response = await client.GetAsync("/api/core", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Core_WithSqlTokenInQueryString_IsNotAccepted()
+    {
+        var client = CreateClient();
+        var email = NewEmail();
+        await ParseUserIdAsync(await RegisterAsync(client, email));
+        var (userId, sqlToken, jwt) = await ParseLoginAsync(await LoginAsync(client, email, "Password123"));
+        TrackCreatedUser(userId);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+
+        // El token en la query string queda expuesto en logs, proxies e
+        // historial: la API lo ignora y responde 401.
+        var response = await client.GetAsync($"/api/core?User_Id={userId}&SqlToken={sqlToken}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

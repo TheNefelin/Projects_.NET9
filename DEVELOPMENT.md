@@ -6,10 +6,11 @@ Documento de decisiones y estado de la API consolidada `.NET 9` con Clean Archit
 
 - **Vigente**: `WebApi` (host/composition root) + `WebApiPM.Domain` + `WebApiPM.Application` + `WebApiPM.Infrastructure`. Es la API actual, más SENIOR y robusta que las versiones anteriores.
 - **Build**: 0 errores / 0 warnings.
-- **Swagger**: funcionando en la raíz (`RoutePrefix = string.Empty`) con Swashbuckle 6.6.2 / OpenApi 1.x.
-- **Tests**: pendientes (por ejecutar contra `db_testing`). Tests en `WebApiPM.Tests`.
+- **Swagger**: funcionando en la raíz (`RoutePrefix = string.Empty`) con Swashbuckle 6.6.2 / OpenApi 1.x, y **solo en Development** (en producción el mapa completo de la API es público y le sirve al atacante la lista de endpoints).
+- **Tests**: **49/49 en verde** contra la BD local `db_testing` (runner MTP; `dotnet WebApiPM.Tests\bin\Debug\net9.0\WebApiPM.Tests.dll`).
+- **Esquema**: idéntico al de la versión .NET 10 (`PasswordManager_.NET10`), así que **ambas APIs pueden compartir la misma base de datos**.
 - **Utils**: existe como proyecto pero no usado actualmente; reservado para componentes compartidos futuros.
-- **Auditoría de código**: realizada. Un hallazgo de seguridad pendiente (spoofing de IP) y varios menores, documentados en [Auditoría](#auditoría-hallazgos-pendientes).
+- **Auditoría de código**: realizada. El hallazgo crítico (spoofing de IP) está **corregido**; los menores pendientes están en [Auditoría](#auditoría-hallazgos-pendientes).
 
 ## Arquitectura
 
@@ -33,6 +34,16 @@ WebApi ──> WebApiPM.Infrastructure ──> WebApiPM.Application ──> WebA
 **Decisión**: mantener `ApiResponse<T>` como formato único para éxito y error, y estandarizar todos los caminos de error hacia ese envelope (validación de modelo, JWT 401, 404 y excepciones).
 
 **Motivación**: los clientes actuales ya consumen `isSuccess/statusCode/message/data`. Adoptar ProblemDetails (RFC 9457) habría introducido un segundo formato de error, agravando la inconsistencia que motivó el refactor. ProblemDetails queda descartado salvo una futura v2 deliberadamente breaking.
+
+> ℹ️ **Divergencia con la versión .NET 10**: `PasswordManager_.NET10` sí migró a `ProblemDetails` (su "contrato v2"), y por lo tanto **su cliente MAUI deserializa DTOs planos + `ProblemDetails`**, no el envelope. Aquí se mantiene el envelope a propósito (decisión de este repo, con sus clientes actuales); unificar ambos contratos exige migrar los clientes en el mismo despliegue.
+
+### 1 bis. Sin stored procedures: Dapper con SQL parametrizado
+
+**Decisión**: el alta de usuario es un `INSERT` parametrizado en `AuthUserRepository` (con `Profile_Id = 2`) y el login se resuelve en C# (`GetUserByEmailAsync` + verificación del hash + token nuevo). El repositorio devuelve un enum `UserCreationStatus` (`Created`, `EmailAlreadyExists`) en vez del contrato `SqlResponse` del SP.
+
+**Motivación**: la lógica de negocio queda en código testeable (sin round-trip extra a la BD) y el esquema deja de depender de procedimientos almacenados. El flag `Mae_Config.IsEnableRegister`, que validaba el SP `Auth_Register`, se comprobó ahora en el servicio (`AuthUserService.RegisterAsync` → 403).
+
+**Consecuencia**: el script `SqlServerPM.sql` ya no crea los SP `Auth_Register`/`Auth_Login`.
 
 **Implementación de la estandarización**:
 - Validación de modelo → `InvalidModelStateResponseFactory` devuelve `ApiResponse` 400 con `Errors`.
@@ -86,11 +97,19 @@ Los fallos incrementan el contador; el éxito resetea; `GetRemainingBlockTime` p
 
 **Motivación**: dos políticas distintas porque la ApiKey es un secreto compartido estático (bloqueo más severo) y las credenciales de usuario son por-cuenta (bloqueo moderado).
 
-### 8. Caché de ApiKey con TTL configurable
+### 8. Sin caché de ApiKey: validación en cada request
 
-**Decisión**: `MaeConfigService` cachea la ApiKey de `Mae_Config` en memoria con TTL de 30s (`ApiKeyCache:ExpirationSeconds`), sincronizado con `Lock` y usando `TimeProvider`. Comparación de valores con `CryptographicOperations.FixedTimeEquals` (tiempo constante).
+**Decisión**: `MaeConfigService.ValidateApiKey` consulta `Mae_Config` en **cada request** (antes cacheaba la ApiKey 30 s en memoria). La comparación sigue siendo en tiempo constante (`CryptographicOperations.FixedTimeEquals`).
 
-**Motivación**: reduce el round-trip a BD en cada request sin dejar una ventana larga ante rotación de la clave (30s).
+**Motivación**: con la caché, una ApiKey filtrada seguía siendo válida durante la ventana de expiración; sin ella, la rotación surte efecto en el siguiente request. El costo es despreciable (una fila por PK) y el rate limit acota el tráfico. La clave `ApiKeyCache:ExpirationSeconds` se eliminó de `appsettings.json`.
+
+### 8 bis. Token de sesión hasheado en BD
+
+**Decisión**: `Auth_Users.SqlTokenHash VARCHAR(64)` guarda **solo el SHA-256** (hexadecimal minúsculas) del token de sesión; el token crudo se genera en C# al iniciar sesión y nunca se persiste. La comparación se hace por hash (`SqlTokenHasher.Hash`), y el `SqlToken` de la sesión se valida contra el hash almacenado.
+
+**Motivación**: con el token en texto plano, quien leía la base obtenía una sesión reutilizable.
+
+**Migración**: `SqlServerPM_Migrate_SqlTokenHash.sql` (script de una sola ejecución, **con la API detenida**): agrega la columna, copia el token hasheado y elimina la columna `SqlToken`. No se puede deshacer (el token crudo no queda en ningún lado); las sesiones abiertas siguen sirviendo porque el hash coincide.
 
 ### 9. Security headers solo en respuestas JSON
 
@@ -109,26 +128,37 @@ Los fallos incrementan el contador; el éxito resetea; `GetRemainingBlockTime` p
 - **`CoreDataService`**: el bloque de validación de sesión (GetCoreUserAsync + 401) se extrajo a `GetValidSessionAsync`.
 - **Operaciones de escritura**: `CoreDataRepository` usa `ExecuteAsync` para INSERT/UPDATE/DELETE (semántica correcta) y `QueryFirstAsync` para obtener el `Data_Id` del INSERT.
 - **Fuga de datos del usuario**: `UpdateAsync`/`DeleteAsync` usan el `User_Id` de la sesión validada (claim JWT), no el del request.
-- **Hasher**: PBKDF2-HMACSHA256 con salt 16 bytes, key 32 bytes y 100k iteraciones (`PasswordHasher`).
+- **Hasher**: PBKDF2-HMACSHA256 con salt 16 bytes, key 32 bytes y **600 000 iteraciones** (`PasswordHasher`), con **fallback a 100 000** para verificar los hashes ya persistidos (los legacy se re-derivan al re-registrar o cambiar la clave maestra).
 - **CORS**: orígenes permitidos en `appsettings.json` (`Cors:AllowedOrigins`); la allow-list se aplica realmente (se eliminó `SetIsOriginAllowed(_ => true)` que la anulaba). Solo afecta a navegadores; no a clientes nativos (MAUI) ni server-to-server.
+- **Token de sesión fuera de la query string**: el `GET /api/core` toma el `SqlToken` del **header `SqlToken`** (antes viajaba en la URL, donde quedaba expuesto en logs, proxies e historial). El `User_Id` del cuerpo se ignora: la identidad sale del claim `sub` del JWT.
+- **Header de credencial `X-ApiKey`**: el header global se renombró de `ApiKey` a `X-ApiKey` (filtro de validación, documento de OpenAPI y tests). Los nombres de header no distinguen mayúsculas y el prefijo `X-` está en desuso por RFC 6648: es **convención, no seguridad**.
+- **Health checks con liveness separado de readiness**: `/health/live` (predicado `false`, no toca la BD), `/health/ready` (predicado `true`, incluye `SqlHealthCheck` → `SELECT 1` vía Dapper) y `/health` como **alias de readiness** para no romper el contrato previo. Los tres son `AllowAnonymous`.
+- **Lockout por IP de la clave maestra**: `get-iv` y `change-password` cuentan los fallos y bloquean la IP (contador compartido con el de login): 5 fallos → bloqueo. Un login fallido no debe permitir probar la clave maestra indefinidamente.
+- **Cambio de clave maestra (`POST /api/core/change-password`)**: rotación **atómica** de hash, sal y token de sesión + reemplazo de los registros re-cifrados por el cliente, todo en **una sola transacción** (el contrato que evita perder datos si el request falla a mitad). La nueva sal/IV (16 bytes, base64) la genera el cliente, que es el dueño del cifrado; el servidor solo valida su formato.
+- **Política de longitud de la clave maestra**: **6** para verificar (`CoreUserPassword`, `ChangeCorePasswordRequest.OldPassword`) y **8** para crear o cambiar (`CoreUserPasswordCreate`, `ChangeCorePasswordRequest.NewPassword`). Sin reglas de composición: lo que protege es longitud + lockout + rate limit.
+- **Central Package Management (CPM)**: `Directory.Packages.props` en la raíz con `ManagePackageVersionsCentrally=true`; las versiones de los `PackageReference` viven una sola vez ahí y los `.csproj` quedan sin `Version`.
+- **Runner MTP**: `global.json` con `"test": { "runner": "Microsoft.Testing.Platform" }` y `UseMicrosoftTestingPlatformRunner` en el proyecto de tests (con el SDK de .NET 10, `dotnet test` con el target de VSTest ya no está soportado).
+- **`Microsoft.AspNetCore.Cryptography.KeyDerivation` eliminado**: el PBKDF2 se usa desde el BCL (`Rfc2898DeriveBytes.Pbkdf2`); el paquete externo solo envolvía esa llamada.
 
 ## Auditoría (hallazgos pendientes)
 
-### Crítico (pendiente de corrección)
+### Crítico (corregido)
 
-- **Spoofing de IP en `ClientIpResolver`** (`WebApi/Helpers/ClientIpResolver.cs`): confía en el header `X-Forwarded-For` sin `UseForwardedHeaders` ni `KnownProxies`/`KnownNetworks`. Un atacante puede evadir el rate limiting y el IP lockout inventando un XFF distinto por request, o provocar un bloqueo de IP ajena (DoS dirigido).
-  - **Fix propuesto (no aplicado)**: `app.UseForwardedHeaders` con `ForwardedHeaders.XForwardedFor | XForwardedProto` y `KnownProxies` configurables (loopback en dev, proxy real en producción); simplificar `ClientIpResolver` para usar `Connection.RemoteIpAddress` (el middleware lo actualiza solo con IPs confiables). Pendiente de autorización.
+- ✅ **Spoofing de IP en `ClientIpResolver`**: corregido. `Program.cs` configura `ForwardedHeadersOptions` desde la sección `ForwardedHeaders` (`KnownProxies` + `ForwardLimit`) y `ClientIpResolver` usa **solo `Connection.RemoteIpAddress`**: el runtime reemplaza la IP desde `X-Forwarded-For` únicamente cuando el emisor es un proxy conocido, así que un cliente directo no puede forjar la IP que alimenta rate limit, lockout y `Retry-After`. La IP real se toma del header **solo** en los proxies declarados en `appsettings.json`.
 
-### Menores
+### Menor
 
-- **`NewSqlToken`** (`AuthUserRepository.cs`): si el `UPDATE ... OUTPUT` no afecta filas, devuelve `Guid.Empty` y el login "exitoso" entrega un `SqlToken` inválido silenciosamente. Conviene validar el resultado.
-- **`MaeConfigService.GetCachedApiKeyAsync`**: al expirar el TTL pueden darse varias consultas simultáneas a BD (thundering herd). Impacto bajo (1 fila), pero un `Lazy<T>` resolvería la semántica exacta.
+- **`NewSqlToken`**: valida el resultado del `UPDATE` (antes devolvía `Guid.Empty` si no afectaba filas, y el login "exitoso" entregaba un token inválido en silencio).
 - **`ApiResponse.Success<object>(null!, ...)`** en `CoreDataService.DeleteAsync`: el envelope serializa `Data: null`; el cliente debe tolerarlo.
 - **Logging de PII**: se registra el email completo en login/register. Aceptable hoy; revisar si se incorpora un sink de almacenamiento (Serilog) para no acumular PII sin anonimizar.
-- **SPs no verificables desde el repo**: `Auth_Register` y el mapeo a `SqlResponse` dependen de la BD (`SqlServer.sql`). Verificar el contrato del SP antes de desplegar.
+- **`SqlResponse`** (modelo del contrato del SP `Auth_Register`): quedó **sin uso** al pasar al INSERT parametrizado. Pendiente de eliminar.
+- **`Utils`**: proyecto sin uso (contiene un `EncryptionService`/`PasswordUtil` duplicados). Pendiente de eliminar o de convertir en biblioteca compartida.
+- ⚠️ **Claves maestras legacy**: la política de longitud (6) bloquea las claves de menos de 6 caracteres que se pudieran haber creado antes de la validación. No hay salida desde la app (el cambio de clave exige la clave actual). Riesgo asumido, con la misma advertencia que en la versión .NET 10.
 
 ## Próximos pasos
 
-1. Aplicar el fix de spoofing de IP (`UseForwardedHeaders` + `ClientIpResolver`), pendiente de autorización.
-2. Tests de integración contra `db_testing` (esquema: Auth_Users, Auth_Profiles, Mae_Config, PM_CoreData y SP Auth_Register).
-3. Config de producción real: `SqlServerWeb`, `JWT:Key` secreta, `Cors:AllowedOrigins` y `RateLimit` en el `appsettings.json` de producción.
+1. **Unificar el contrato de error con la versión .NET 10** (`ProblemDetails` en vez de `ApiResponse<T>`): exige migrar los clientes en el mismo despliegue (cambio de contrato).
+2. **CI**: no hay workflow en este repo (`.github/workflows` está vacío). Portar el de la versión .NET 10 (compila ambas suites y corre los tests contra un SQL Server efímero).
+3. **Config de producción real**: `SqlServerWeb`, `JWT:Key` secreta, `Cors:AllowedOrigins` y `RateLimit` en el `appsettings.json` de producción.
+4. Eliminar `SqlResponse` y el proyecto `Utils` (sin uso).
+5. **Prueba de migración**: ejecutar `SqlServerPM_Migrate_SqlTokenHash.sql` contra una base con el esquema viejo (con la API detenida) y validar que las sesiones abiertas siguen funcionando.

@@ -20,9 +20,9 @@ public class CoreDataService : ICoreDataService
         _coreUserRepository = coreUserRepository;
     }
 
-    public async Task<ApiResponse<IEnumerable<CoreDataResponse>>> GetAllAsync(Guid userId, CoreUserRequest coreUserRequest, CancellationToken cancellationToken)
+    public async Task<ApiResponse<IEnumerable<CoreDataResponse>>> GetAllAsync(Guid userId, Guid sqlToken, CancellationToken cancellationToken)
     {
-        var coreUser = await GetValidSessionAsync(userId, coreUserRequest.SqlToken, cancellationToken);
+        var coreUser = await GetValidSessionAsync(userId, sqlToken, cancellationToken);
         if (coreUser == null)
             return ApiResponse.Failure<IEnumerable<CoreDataResponse>>(UnauthorizedStatusCode, UnauthorizedMessage);
 

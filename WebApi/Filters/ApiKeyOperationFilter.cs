@@ -7,7 +7,7 @@ namespace WebApi.Filters;
 
 public class ApiKeyOperationFilter : IOperationFilter
 {
-    private const string ApiKeyHeaderName = "ApiKey";
+    private const string ApiKeyHeaderName = "X-ApiKey";
 
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {

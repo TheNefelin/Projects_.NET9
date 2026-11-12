@@ -8,7 +8,9 @@ namespace WebApi.Filters;
 
 public class ApiKeyFilter : IAsyncActionFilter
 {
-    private const string ApiKeyHeaderName = "ApiKey";
+    // Header HTTP: los nombres de header no distinguen mayusculas, asi que el
+    // prefijo X- es solo convencion y no agrega seguridad.
+    private const string ApiKeyHeaderName = "X-ApiKey";
 
     private readonly IMaeConfigService _maeConfigService;
     private readonly IIpLockoutService _lockoutService;

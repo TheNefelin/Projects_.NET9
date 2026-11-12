@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Cryptography.KeyDerivation;
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 
 namespace Utils;
 
@@ -24,12 +23,15 @@ public class PasswordUtil
 
     private string NewHash(string password, byte[] salt)
     {
-        return Convert.ToBase64String(KeyDerivation.Pbkdf2(
-            password: password,
-            salt: salt,
-            prf: KeyDerivationPrf.HMACSHA256,
-            iterationCount: 100000,
-            numBytesRequested: 32)
+        // PBKDF2-HMACSHA256 desde el BCL: el paquete externo
+        // Microsoft.AspNetCore.Cryptography.KeyDerivation esta obsoleto y solo
+        // envolvia Rfc2898DeriveBytes.Pbkdf2.
+        return Convert.ToBase64String(Rfc2898DeriveBytes.Pbkdf2(
+            password,
+            salt,
+            100000,
+            HashAlgorithmName.SHA256,
+            32)
         );
     }
 }

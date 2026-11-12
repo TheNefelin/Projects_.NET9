@@ -1,9 +1,10 @@
 ﻿using Dapper;
-using System.Data;
+using Microsoft.Data.SqlClient;
 using WebApiPM.Domain.Entities;
 using WebApiPM.Domain.Interfaces;
 using WebApiPM.Domain.Models;
 using WebApiPM.Infrastructure.Data;
+using WebApiPM.Infrastructure.Security;
 
 namespace WebApiPM.Infrastructure.Repositories;
 
@@ -16,11 +17,17 @@ public class AuthUserRepository : IAuthUserRepository
         _dapper = dapper;
     }
 
-    public async Task<SqlResponse?> CreateUserAsync(AuthUser authUser, CancellationToken cancellationToken)
+    public async Task<UserCreationStatus> CreateUserAsync(AuthUser authUser, CancellationToken cancellationToken)
     {
+        // INSERT parametrizado en vez del stored procedure Auth_Register: la
+        // logica de negocio queda en codigo testeable y el repositorio solo
+        // informa el resultado (el SP devolvia un contrato SqlResponse).
         var commandDefinition = new CommandDefinition(
-            commandType: CommandType.StoredProcedure,
-            commandText: "Auth_Register",
+            commandText: @"
+                INSERT INTO Auth_Users
+                    (User_Id, Email, HashLogin, SaltLogin, Profile_Id)
+                VALUES
+                    (@User_Id, @Email, @HashLogin, @SaltLogin, 2)",
             parameters: new
             {
                 authUser.User_Id,
@@ -28,11 +35,19 @@ public class AuthUserRepository : IAuthUserRepository
                 authUser.HashLogin,
                 authUser.SaltLogin
             },
-            transaction: default,
             cancellationToken: cancellationToken);
 
         using var connection = _dapper.CreateConnection();
-        return await connection.QueryFirstOrDefaultAsync<SqlResponse>(commandDefinition);
+
+        try
+        {
+            await connection.ExecuteAsync(commandDefinition);
+            return UserCreationStatus.Created;
+        }
+        catch (SqlException exception) when (exception.Number is 2601 or 2627)
+        {
+            return UserCreationStatus.EmailAlreadyExists;
+        }
     }
 
     public async Task<AuthUser?> GetUserByEmailAsync(string email, CancellationToken cancellationToken)
@@ -46,7 +61,7 @@ public class AuthUserRepository : IAuthUserRepository
                     a.SaltLogin,
                     a.HashPM,
                     a.SaltPM,
-                    a.SqlToken,
+                    a.SqlTokenHash,
                     b.Name AS Role
                 FROM Auth_Users a
                     INNER JOIN Auth_Profiles b ON a.Profile_Id = b.Profile_Id
@@ -60,12 +75,18 @@ public class AuthUserRepository : IAuthUserRepository
 
     public async Task<Guid> NewSqlToken(string email, CancellationToken cancellationToken)
     {
+        // El token se genera en C# y solo se persiste su SHA-256: si alguien
+        // lee la base no obtiene un token de sesion reutilizable.
+        var sqlToken = Guid.NewGuid();
+
         var commandDefinition = new CommandDefinition(
-            commandText: "UPDATE Auth_Users SET SqlToken = NEWID() OUTPUT inserted.SqlToken WHERE Email = @Email",
-            parameters: new { Email = email },
+            commandText: "UPDATE Auth_Users SET SqlTokenHash = @SqlTokenHash WHERE Email = @Email",
+            parameters: new { SqlTokenHash = SqlTokenHasher.Hash(sqlToken), Email = email },
             cancellationToken: cancellationToken);
 
         using var connection = _dapper.CreateConnection();
-        return await connection.QueryFirstOrDefaultAsync<Guid>(commandDefinition);
+        await connection.ExecuteAsync(commandDefinition);
+
+        return sqlToken;
     }
 }
