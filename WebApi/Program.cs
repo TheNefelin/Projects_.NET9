@@ -326,11 +326,17 @@ app.UseRateLimiter();
 
 // ======================================================================
 // Swagger
-// Solo en Development: en produccion el mapa completo de la API seria
-// publico (no requiere ApiKey) y le sirve al atacante la lista de
-// endpoints, headers y esquemas.
+// El mapa completo de la API no requiere ApiKey: exponerlo en produccion
+// sirve de reconocimiento (endpoints, headers y esquemas). Por eso el
+// interruptor es explicito en configuracion (OpenApi:Enabled) y no una
+// condicion sobre el entorno: un ASPNETCORE_ENVIRONMENT mal puesto no
+// decide por accidente si el documento queda publico.
+// Misma clave y mismo criterio que WebApiCore (.NET 10), para que ambas
+// APIs se comporten igual.
 // ======================================================================
-if (app.Environment.IsDevelopment())
+var openApiEnabled = builder.Configuration.GetValue("OpenApi:Enabled", true);
+
+if (openApiEnabled)
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>

@@ -6,8 +6,8 @@ Documento de decisiones y estado de la API consolidada `.NET 9` con Clean Archit
 
 - **Vigente**: `WebApi` (host/composition root) + `WebApiPM.Domain` + `WebApiPM.Application` + `WebApiPM.Infrastructure`. Es la API actual, más SENIOR y robusta que las versiones anteriores.
 - **Build**: 0 errores / 0 warnings.
-- **Swagger**: funcionando en la raíz (`RoutePrefix = string.Empty`) con Swashbuckle 6.6.2 / OpenApi 1.x, y **solo en Development** (en producción el mapa completo de la API es público y le sirve al atacante la lista de endpoints).
-- **Tests**: **49/49 en verde** contra la BD local `db_testing` (runner MTP; `dotnet WebApiPM.Tests\bin\Debug\net9.0\WebApiPM.Tests.dll`).
+- **Swagger**: funcionando en la raíz (`RoutePrefix = string.Empty`) con Swashbuckle 6.6.2 / OpenApi 1.x. El mapa de la API **no requiere ApiKey**, así que queda **expuesto por decisión explícita** mediante la clave `OpenApi:Enabled` (por defecto `true`, también en producción): el documento sirve de reconocimiento (endpoints, headers y esquemas), no de acceso. El interruptor está en configuración y no depende de `ASPNETCORE_ENVIRONMENT` a propósito, para que un entorno mal puesto no decida por accidente si el documento queda público. Para desactivarlo en un entorno concreto: `"OpenApi": { "Enabled": false }`. Mismo criterio y misma clave que `WebApiCore` (.NET 10).
+- **Tests**: **72/72 en verde** contra la BD local `db_testing` (runner MTP; `dotnet WebApiPM.Tests\bin\Debug\net9.0\WebApiPM.Tests.dll`). Incluye los 3 de health checks (`/health/live`, `/health/ready` y el alias `/health`), los de contrato `ProblemDetails` y los de paridad con `WebApiCore`.
 - **Esquema**: idéntico al de la versión .NET 10 (`PasswordManager_.NET10`), así que **ambas APIs pueden compartir la misma base de datos**.
 - **Utils**: existe como proyecto pero no usado actualmente; reservado para componentes compartidos futuros.
 - **Auditoría de código**: realizada. El hallazgo crítico (spoofing de IP) está **corregido**; los menores pendientes están en [Auditoría](#auditoría-hallazgos-pendientes).
@@ -116,7 +116,9 @@ Los fallos incrementan el contador; el éxito resetea; `GetRemainingBlockTime` p
 
 **Motivación**: con el token en texto plano, quien leía la base obtenía una sesión reutilizable.
 
-**Migración**: `SqlServerPM_Migrate_SqlTokenHash.sql` (script de una sola ejecución, **con la API detenida**): agrega la columna, copia el token hasheado y elimina la columna `SqlToken`. No se puede deshacer (el token crudo no queda en ningún lado); las sesiones abiertas siguen sirviendo porque el hash coincide.
+**Migración**: la base de **testing local** ya está en el esquema nuevo (`SqlTokenHash`, sin `SqlToken`); el script que hizo esa transición **no vive en este repositorio** (los scripts de migración y validación de producción quedan fuera del alcance: ver `AGENTS.md` §7 y §11). Para el desarrollo y las pruebas locales solo hace falta el esquema que define `SqlServerPM.sql`.
+
+> ℹ️ Dato útil para quien tenga que aplicar el cambio en otra base: el hash debe calcularse sobre el **GUID canónico en minúsculas** (`Guid.ToString("D")`), porque SQL Server renderiza el `UNIQUEIDENTIFIER` en mayúsculas y .NET hashea los bytes UTF-8 de la forma en minúsculas. Con GUIDs que contienen letras, hashear sin normalizar a minúsculas produce un hash distinto y las sesiones existentes quedan invalidadas.
 
 ### 9. Security headers solo en respuestas JSON
 
@@ -165,7 +167,6 @@ Los fallos incrementan el contador; el éxito resetea; `GetRemainingBlockTime` p
 ## Próximos pasos
 
 1. **CI**: no hay workflow en este repo (`.github/workflows` está vacío). Portar el de la versión .NET 10 (compila ambas suites y corre los tests contra un SQL Server efímero).
-2. **Config de producción real**: `SqlServerWeb`, `JWT:Key` secreta, `Cors:AllowedOrigins` y `RateLimit` en el `appsettings.json` de producción.
+2. **Config de producción real**: `SqlServerWeb`, `JWT:Key` secreta, `Cors:AllowedOrigins` y `RateLimit` en el `appsettings.json` de producción. Lo gestiona el usuario (fuera del alcance del agente: ver `AGENTS.md` §7).
 3. Eliminar `SqlResponse` y el proyecto `Utils` (sin uso).
-4. **Prueba de migración**: ejecutar `SqlServerPM_Migrate_SqlTokenHash.sql` contra una base con el esquema viejo (con la API detenida) y validar que las sesiones abiertas siguen funcionando.
-5. **Verificar en el cliente MAUI v10** contra esta API (el contrato ya es idéntico al de `WebApiCore`): login, alta de clave maestra, CRUD de secretos y cambio de clave maestra.
+4. **Verificar en el cliente MAUI v10** contra esta API en el entorno local (el contrato ya es idéntico al de `WebApiCore`): login, alta de clave maestra, CRUD de secretos y cambio de clave maestra.
