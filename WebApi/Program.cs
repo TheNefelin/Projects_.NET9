@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using WebApi.Filters;
 using WebApi.Health;
@@ -112,19 +113,31 @@ builder.Services.AddControllers()
     {
         options.InvalidModelStateResponseFactory = context =>
         {
-            var errors = context.ModelState
-                .Where(x => x.Value?.Errors.Count > 0)
-                .ToDictionary(
-                    x => x.Key,
-                    x => x.Value!.Errors.Select(e => e.ErrorMessage).ToArray());
+            var problem = new ValidationProblemDetails(
+                context.ModelState
+                    .Where(x => x.Value?.Errors.Count > 0)
+                    .ToDictionary(
+                        x => x.Key,
+                        x => x.Value!.Errors
+                            .Select(e => e.ErrorMessage).ToArray()))
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Solicitud incorrecta",
+                Detail = "Validación fallida.",
+                Type = null
+            };
 
-            return new BadRequestObjectResult(
-                ApiResponse.Failure<object>(400, "Validación fallida.", errors, context.HttpContext.TraceIdentifier));
+            problem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+
+            return new BadRequestObjectResult(problem)
+            {
+                ContentTypes = { "application/problem+json" }
+            };
         };
     });
 
 // ======================================================================
-// Exception handler global (respuesta uniforme ApiResponse)
+// Exception handler global (respuesta uniforme ProblemDetails)
 // AddProblemDetails habilita UseExceptionHandler() para invocar los
 // IExceptionHandler registrados (GlobalExceptionHandler). No eliminar.
 // ======================================================================
@@ -160,9 +173,21 @@ builder.Services
             {
                 context.HandleResponse();
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                context.Response.ContentType = "application/json";
-                return context.Response.WriteAsJsonAsync(
-                    ApiResponse.Failure<object>(401, "No autorizado.", traceId: context.HttpContext.TraceIdentifier));
+                context.Response.ContentType = "application/problem+json";
+
+                var challengeProblem = new ProblemDetails
+                {
+                    Status = StatusCodes.Status401Unauthorized,
+                    Title = "No autorizado",
+                    Detail = "No autorizado."
+                };
+                challengeProblem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+
+                return JsonSerializer.SerializeAsync(
+                    context.Response.Body,
+                    challengeProblem,
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web),
+                    cancellationToken: context.HttpContext.RequestAborted);
             }
         };
     });
@@ -239,11 +264,21 @@ builder.Services.AddRateLimiter(options =>
     options.OnRejected = async (context, cancellationToken) =>
     {
         context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-        context.HttpContext.Response.ContentType = "application/json";
-        await context.HttpContext.Response.WriteAsJsonAsync(
-            ApiResponse.Failure<object>(429, "Demasiadas solicitudes. Intenta nuevamente en un minuto.",
-                traceId: context.HttpContext.TraceIdentifier),
-            cancellationToken);
+        context.HttpContext.Response.ContentType = "application/problem+json";
+
+        var rateLimitProblem = new ProblemDetails
+        {
+            Status = StatusCodes.Status429TooManyRequests,
+            Title = "Demasiadas solicitudes",
+            Detail = "Demasiadas solicitudes. Intenta nuevamente en un minuto."
+        };
+        rateLimitProblem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+
+        await JsonSerializer.SerializeAsync(
+            context.HttpContext.Response.Body,
+            rateLimitProblem,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web),
+            cancellationToken: cancellationToken);
     };
 });
 
@@ -329,14 +364,26 @@ app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.Health
 app.MapHealthChecks("/health").AllowAnonymous();
 
 // ======================================================================
-// 404 uniforme (ApiResponse)
+// 404 uniforme (ProblemDetails)
 // ======================================================================
 app.MapFallback(async context =>
 {
     context.Response.StatusCode = StatusCodes.Status404NotFound;
-    context.Response.ContentType = "application/json";
-    await context.Response.WriteAsJsonAsync(
-        ApiResponse.Failure<object>(404, "Recurso no encontrado.", traceId: context.TraceIdentifier));
+    context.Response.ContentType = "application/problem+json";
+
+    var notFoundProblem = new ProblemDetails
+    {
+        Status = StatusCodes.Status404NotFound,
+        Title = "Recurso no encontrado",
+        Detail = "Recurso no encontrado."
+    };
+    notFoundProblem.Extensions["traceId"] = context.TraceIdentifier;
+
+    await JsonSerializer.SerializeAsync(
+        context.Response.Body,
+        notFoundProblem,
+        new JsonSerializerOptions(JsonSerializerDefaults.Web),
+        cancellationToken: context.RequestAborted);
 });
 
 app.Run();

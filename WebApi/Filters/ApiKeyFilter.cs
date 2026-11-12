@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using WebApi.Helpers;
-using WebApiPM.Application.Common;
 using WebApiPM.Application.Interfaces;
 
 namespace WebApi.Filters;
@@ -36,11 +35,11 @@ public class ApiKeyFilter : IAsyncActionFilter
             if (remaining is TimeSpan remainingTime)
                 context.HttpContext.Response.Headers.RetryAfter = ((int)remainingTime.TotalSeconds).ToString();
 
-            context.Result = new ObjectResult(
-                ApiResponse.Failure<object>(429, "Demasiados intentos fallidos de ApiKey. Intenta nuevamente más tarde."))
-            {
-                StatusCode = StatusCodes.Status429TooManyRequests
-            };
+            context.Result = CreateProblemResult(
+                context.HttpContext,
+                StatusCodes.Status429TooManyRequests,
+                "Demasiadas solicitudes",
+                "Demasiados intentos fallidos de ApiKey. Intenta nuevamente más tarde.");
             return;
         }
 
@@ -49,7 +48,11 @@ public class ApiKeyFilter : IAsyncActionFilter
         if (string.IsNullOrEmpty(apiKey))
         {
             _lockoutService.RegisterFailure(clientIp);
-            context.Result = new UnauthorizedObjectResult(ApiResponse.Failure<object>(401, "ApiKey es requerida."));
+            context.Result = CreateProblemResult(
+                context.HttpContext,
+                StatusCodes.Status401Unauthorized,
+                "No autorizado",
+                "ApiKey es requerida.");
             return;
         }
 
@@ -62,11 +65,36 @@ public class ApiKeyFilter : IAsyncActionFilter
             if (_lockoutService.IsBlocked(clientIp))
                 _logger.LogWarning("IP {Ip} bloqueada por exceso de intentos fallidos de ApiKey.", clientIp);
 
-            context.Result = new UnauthorizedObjectResult(ApiResponse.Failure<object>(401, "ApiKey no autorizada."));
+            context.Result = CreateProblemResult(
+                context.HttpContext,
+                StatusCodes.Status401Unauthorized,
+                "No autorizado",
+                "ApiKey no autorizada.");
             return;
         }
 
         _lockoutService.Reset(clientIp);
         await next();
+    }
+
+    private static ObjectResult CreateProblemResult(
+        HttpContext httpContext,
+        int statusCode,
+        string title,
+        string detail)
+    {
+        var problem = new ProblemDetails
+        {
+            Status = statusCode,
+            Title = title,
+            Detail = detail
+        };
+        problem.Extensions["traceId"] = httpContext.TraceIdentifier;
+
+        return new ObjectResult(problem)
+        {
+            StatusCode = statusCode,
+            ContentTypes = { "application/problem+json" }
+        };
     }
 }

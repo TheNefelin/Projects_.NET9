@@ -160,9 +160,7 @@ public async Task<LoginResult?> GetUserAsync(string email, string passwordHash)
 
 ## 5. Contrato uniforme de respuesta (Envelope)
 
-> ⚠️ **Variante de este proyecto** (`WebApiPM` / `WebApi`): **mantiene el envelope `ApiResponse<T>`**. Los servicios devuelven el envelope con `isSuccess/statusCode/message/data` y todos los caminos de error (validación de modelo, JWT 401, 404, 429, excepciones) se estandarizan hacia ese mismo formato. Motivo: los clientes actuales de esta API ya consumen ese contrato, y Adoptar ProblemDetails introduciría un segundo formato de error. **No migrar a `ProblemDetails` sin un despliegue coordinado de los clientes**: es un cambio de contrato deliberadamente breaking (ver `DEVELOPMENT.md` §1 y sus próximos pasos).
->
-> Nota para quien trabaje en el proyecto hermano: `PasswordManager_.NET10` (.NET 10) **sí** migró al contrato v2 (sin envelope, `application/problem+json` con `status`/`title`/`detail`/`traceId`), y su cliente MAUI deserializa DTOs planos + `ProblemDetails`. Ese patrón es válido como referencia para una v2 de esta API, pero **no es el contrato actual de este repo**.
+> ⚠️ **Variante de este proyecto** (`WebApiPM` / `WebApi`): usa el **contrato v2**: **sin envelope**. Los servicios devuelven el DTO directamente y los errores salen como **`application/problem+json`** (RFC 9457) con `status`/`title`/`detail`/`traceId`, generados por `GlobalExceptionHandler`, `InvalidModelStateResponseFactory`, `JwtBearerEvents.OnChallenge`, `OnRejected` del rate limiter y `MapFallback`. Motivo: `ApiResponse<T>` duplicaba información que el status HTTP ya transporta y obligaba al cliente a desenvolver cada respuesta. **Beneficio**: el cliente MAUI v10 (`PasswordManager_.NET10`) habla indistintamente con esta API y con `WebApiCore` (.NET 10), porque ambas exponen el mismo contrato. El envelope de esta sección sigue siendo válido como **patrón genérico para otros proyectos**, pero **no aplicarlo en este repo**. Ver `DEVELOPMENT.md` §1.
 
 Toda respuesta HTTP pasa por el mismo envelope. Esto estabiliza el contrato con el frontend:
 
@@ -1020,7 +1018,7 @@ Google Play anunció (ago-2026) un requisito de calidad técnica: las apps deben
 ## 13. Checklist final
 
 - [ ] Estructura Clean Architecture con dependencias en una sola dirección.
-- [ ] Contrato de respuesta **uniforme**: en este proyecto, el envelope `ApiResponse<T>` en éxito y error. (El proyecto hermano .NET 10 usa `ProblemDetails` RFC 9457 sin envelope; migrar aquí exige desplegar los clientes en el mismo momento.)
+- [ ] Contrato de respuesta **uniforme**: en este proyecto, `ProblemDetails` (RFC 9457) en todos los errores y DTO plano en el éxito (sin envelope `ApiResponse<T>`). Es el mismo contrato que expone `WebApiCore` (.NET 10), asi que el cliente MAUI v10 sirve para ambas APIs.
 - [ ] `GlobalExceptionHandler` central: log + 500 genérico, sin fuga de internos.
 - [ ] 400 uniforme vía `InvalidModelStateResponseFactory`.
 - [ ] Contraseñas con PBKDF2 + salt + iteraciones configurables.

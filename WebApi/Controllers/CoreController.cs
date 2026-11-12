@@ -37,17 +37,17 @@ public class CoreController : ControllerBase
     }
 
     [HttpPost("register-password")]
-    public async Task<ActionResult<ApiResponse<CoreUserIV>>> RegisterCoreUserPassword(CoreUserPasswordCreate coreUserRequest, CancellationToken cancellationToken)
+    public async Task<ActionResult<CoreUserIV>> RegisterCoreUserPassword(CoreUserPasswordCreate coreUserRequest, CancellationToken cancellationToken)
     {
         if (TryGetUserId(out var userId) is ActionResult unauthorized)
             return unauthorized;
 
-        var apiResult = await _coreUserService.RegisterCoreUserPasswordAsync(userId, coreUserRequest, cancellationToken);
-        return StatusCode(apiResult.StatusCode, apiResult);
+        var response = await _coreUserService.RegisterCoreUserPasswordAsync(userId, coreUserRequest, cancellationToken);
+        return Ok(response);
     }
 
     [HttpPost("change-password")]
-    public async Task<ActionResult<ApiResponse<CoreUserChangeResponse>>> ChangeCoreUserPassword(ChangeCorePasswordRequest coreUserRequest, CancellationToken cancellationToken)
+    public async Task<ActionResult<CoreUserChangeResponse>> ChangeCoreUserPassword(ChangeCorePasswordRequest coreUserRequest, CancellationToken cancellationToken)
     {
         if (TryGetUserId(out var userId) is ActionResult unauthorized)
             return unauthorized;
@@ -55,27 +55,27 @@ public class CoreController : ControllerBase
         var clientIp = ClientIpResolver.Resolve(HttpContext);
 
         if (_corePasswordLockout.IsBlocked(clientIp))
-            return StatusCode(429, ApiResponse.Failure<object>(429, "Demasiados intentos fallidos de clave maestra. Intenta nuevamente más tarde."));
+            throw new TooManyLoginAttemptsException();
 
-        var apiResult = await _coreUserService.ChangeCorePasswordAsync(userId, coreUserRequest, cancellationToken);
-
-        if (apiResult.IsSuccess)
+        try
         {
+            var response = await _coreUserService.ChangeCorePasswordAsync(userId, coreUserRequest, cancellationToken);
             _corePasswordLockout.Reset(clientIp);
+            return Ok(response);
         }
-        else if (apiResult.StatusCode == 401)
+        catch (InvalidCredentialsException)
         {
             _corePasswordLockout.RegisterFailure(clientIp);
 
             if (_corePasswordLockout.IsBlocked(clientIp))
                 _logger.LogWarning("IP {Ip} bloqueada por exceso de intentos fallidos de clave maestra.", clientIp);
-        }
 
-        return StatusCode(apiResult.StatusCode, apiResult);
+            throw;
+        }
     }
 
     [HttpPost("get-iv")]
-    public async Task<ActionResult<ApiResponse<CoreUserIV>>> GetCoreUserIV(CoreUserPassword coreUserRequest, CancellationToken cancellationToken)
+    public async Task<ActionResult<CoreUserIV>> GetCoreUserIV(CoreUserPassword coreUserRequest, CancellationToken cancellationToken)
     {
         if (TryGetUserId(out var userId) is ActionResult unauthorized)
             return unauthorized;
@@ -83,27 +83,27 @@ public class CoreController : ControllerBase
         var clientIp = ClientIpResolver.Resolve(HttpContext);
 
         if (_corePasswordLockout.IsBlocked(clientIp))
-            return StatusCode(429, ApiResponse.Failure<object>(429, "Demasiados intentos fallidos de clave maestra. Intenta nuevamente más tarde."));
+            throw new TooManyLoginAttemptsException();
 
-        var apiResult = await _coreUserService.GetCoreUserIVAsync(userId, coreUserRequest, cancellationToken);
-
-        if (apiResult.IsSuccess)
+        try
         {
+            var response = await _coreUserService.GetCoreUserIVAsync(userId, coreUserRequest, cancellationToken);
             _corePasswordLockout.Reset(clientIp);
+            return Ok(response);
         }
-        else if (apiResult.StatusCode == 401)
+        catch (InvalidCredentialsException)
         {
             _corePasswordLockout.RegisterFailure(clientIp);
 
             if (_corePasswordLockout.IsBlocked(clientIp))
                 _logger.LogWarning("IP {Ip} bloqueada por exceso de intentos fallidos de clave maestra.", clientIp);
-        }
 
-        return StatusCode(apiResult.StatusCode, apiResult);
+            throw;
+        }
     }
 
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<IEnumerable<CoreDataResponse>>>> GetAllCore(
+    public async Task<ActionResult<IEnumerable<CoreDataResponse>>> GetAllCore(
         [FromHeader(Name = SqlTokenHeaderName)] string? sqlToken,
         CancellationToken cancellationToken)
     {
@@ -113,40 +113,40 @@ public class CoreController : ControllerBase
         // El token de sesion viaja en el header, nunca en la query string: en la
         // URL quedaba expuesto en logs, proxies e historial del navegador.
         if (!Guid.TryParse(sqlToken, out var sqlTokenValue))
-            return StatusCode(401, ApiResponse.Failure<object>(401, "Debes iniciar sesión."));
+            throw new UserSessionInvalidException();
 
-        var apiResult = await _coreService.GetAllAsync(userId, sqlTokenValue, cancellationToken);
-        return StatusCode(apiResult.StatusCode, apiResult);
+        var response = await _coreService.GetAllAsync(userId, sqlTokenValue, cancellationToken);
+        return Ok(response);
     }
 
     [HttpPost]
-    public async Task<ActionResult<ApiResponse<CoreDataResponse>>> InsertCore(CoreDataRequest coreDataRequest, CancellationToken cancellationToken)
+    public async Task<ActionResult<CoreDataResponse>> InsertCore(CoreDataRequest coreDataRequest, CancellationToken cancellationToken)
     {
         if (TryGetUserId(out var userId) is ActionResult unauthorized)
             return unauthorized;
 
-        var apiResult = await _coreService.InsertAsync(userId, coreDataRequest, cancellationToken);
-        return StatusCode(apiResult.StatusCode, apiResult);
+        var response = await _coreService.InsertAsync(userId, coreDataRequest, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, response);
     }
 
     [HttpPut]
-    public async Task<ActionResult<ApiResponse<CoreDataResponse>>> UpdateCore(CoreDataRequest coreDataRequest, CancellationToken cancellationToken)
+    public async Task<ActionResult<CoreDataResponse>> UpdateCore(CoreDataRequest coreDataRequest, CancellationToken cancellationToken)
     {
         if (TryGetUserId(out var userId) is ActionResult unauthorized)
             return unauthorized;
 
-        var apiResult = await _coreService.UpdateAsync(userId, coreDataRequest, cancellationToken);
-        return StatusCode(apiResult.StatusCode, apiResult);
+        var response = await _coreService.UpdateAsync(userId, coreDataRequest, cancellationToken);
+        return Ok(response);
     }
 
     [HttpDelete]
-    public async Task<ActionResult<ApiResponse<object>>> DeleteCore(CoreDataDelete coreDataDelete, CancellationToken cancellationToken)
+    public async Task<ActionResult> DeleteCore(CoreDataDelete coreDataDelete, CancellationToken cancellationToken)
     {
         if (TryGetUserId(out var userId) is ActionResult unauthorized)
             return unauthorized;
 
-        var apiResult = await _coreService.DeleteAsync(userId, coreDataDelete, cancellationToken);
-        return StatusCode(apiResult.StatusCode, apiResult);
+        await _coreService.DeleteAsync(userId, coreDataDelete, cancellationToken);
+        return NoContent();
     }
 
     private ActionResult? TryGetUserId(out Guid userId)
@@ -155,6 +155,9 @@ public class CoreController : ControllerBase
         if (Guid.TryParse(sub, out userId))
             return null;
 
-        return StatusCode(401, ApiResponse.Failure<object>(401, "No autorizado."));
+        return Problem(
+            statusCode: StatusCodes.Status401Unauthorized,
+            title: "No autorizado",
+            detail: "No autorizado.");
     }
 }

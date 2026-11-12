@@ -9,8 +9,6 @@ namespace WebApiPM.Application.Services;
 
 public class AuthUserService : IAuthUserService
 {
-    private const string TooManyLoginAttempts = "Demasiados intentos fallidos de inicio de sesión. Intenta nuevamente más tarde.";
-
     private readonly IAuthUserRepository _authUserRepository;
     private readonly IMaeConfigRepository _maeConfigRepository;
     private readonly IPasswordHasher _passwordHasher;
@@ -31,15 +29,15 @@ public class AuthUserService : IAuthUserService
         _loginLockoutService = loginLockoutService;
     }
 
-    public async Task<ApiResponse<AuthUserResponse>> RegisterAsync(AuthUserRegister authUserRegister, CancellationToken cancellationToken)
+    public async Task<AuthUserResponse> RegisterAsync(AuthUserRegister authUserRegister, CancellationToken cancellationToken)
     {
         if (!authUserRegister.Password1.Equals(authUserRegister.Password2))
-            return ApiResponse.Failure<AuthUserResponse>(400, "Las contraseñas no coinciden.");
+            throw new RequestValidationException("Las contraseñas no coinciden.");
 
         // El flag vivia dentro del stored procedure Auth_Register; con el
         // INSERT parametrizado la comprobacion queda en el servicio.
         if (!await _maeConfigRepository.IsRegistrationEnabledAsync(cancellationToken))
-            return ApiResponse.Failure<AuthUserResponse>(403, "El Servicio de Registro No Esta Disponible");
+            throw new RegistrationDisabledException();
 
         var (hash, salt) = _passwordHasher.HashPassword(authUserRegister.Password1);
         var authUser = new AuthUser
@@ -51,33 +49,29 @@ public class AuthUserService : IAuthUserService
         };
 
         var result = await _authUserRepository.CreateUserAsync(authUser, cancellationToken);
-
         if (result == UserCreationStatus.EmailAlreadyExists)
-            return ApiResponse.Failure<AuthUserResponse>(409, "Ya estás registrado.");
+            throw new DuplicateEmailException();
 
-        return ApiResponse.Success(
-            new AuthUserResponse { User_Id = authUser.User_Id },
-            "Usuario Registrado Correctamente",
-            201);
+        return new AuthUserResponse { User_Id = authUser.User_Id };
     }
 
-    public async Task<ApiResponse<AuthUserLogged>> LoginAsync(AuthUserLogin authUserLogin, string ipAddress, CancellationToken cancellationToken)
+    public async Task<AuthUserLogged> LoginAsync(AuthUserLogin authUserLogin, string ipAddress, CancellationToken cancellationToken)
     {
         if (_loginLockoutService.IsBlocked(ipAddress))
-            return ApiResponse.Failure<AuthUserLogged>(429, TooManyLoginAttempts);
+            throw new TooManyLoginAttemptsException();
 
         var authUser = await _authUserRepository.GetUserByEmailAsync(authUserLogin.Email, cancellationToken);
 
         if (authUser == null)
         {
             _loginLockoutService.RegisterFailure(ipAddress);
-            return ApiResponse.Failure<AuthUserLogged>(401, "Usuario o contraseña incorrecta.");
+            throw new InvalidCredentialsException();
         }
 
         if (!_passwordHasher.VerifyPassword(authUserLogin.Password, authUser.HashLogin, authUser.SaltLogin))
         {
             _loginLockoutService.RegisterFailure(ipAddress);
-            return ApiResponse.Failure<AuthUserLogged>(401, "Usuario o contraseña incorrecta.");
+            throw new InvalidCredentialsException();
         }
 
         _loginLockoutService.Reset(ipAddress);
@@ -85,15 +79,13 @@ public class AuthUserService : IAuthUserService
         var sqlToken = await _authUserRepository.NewSqlToken(authUser.Email, cancellationToken);
         var token = _authTokenService.GenerateToken(authUser);
 
-        return ApiResponse.Success(
-            new AuthUserLogged
-            {
-                User_Id = authUser.User_Id,
-                SqlToken = sqlToken,
-                Role = authUser.Role ?? "USER",
-                ExpireMin = token.ExpireMin.ToString(),
-                ApiToken = token.Token
-            },
-            "Login exitoso.");
+        return new AuthUserLogged
+        {
+            User_Id = authUser.User_Id,
+            SqlToken = sqlToken,
+            Role = authUser.Role ?? "USER",
+            ExpireMin = token.ExpireMin.ToString(),
+            ApiToken = token.Token
+        };
     }
 }

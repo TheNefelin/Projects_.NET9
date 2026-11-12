@@ -1,11 +1,10 @@
-﻿using WebApiPM.Application.Common;
-using WebApiPM.Application.DTOs;
+﻿using WebApiPM.Application.DTOs;
 
 namespace WebApiPM.Application.Interfaces;
 
 public interface ICoreUserService
 {
-    Task<ApiResponse<CoreUserIV>> RegisterCoreUserPasswordAsync(Guid userId, CoreUserPasswordCreate coreUserRequest, CancellationToken cancellationToken);
-    Task<ApiResponse<CoreUserIV>> GetCoreUserIVAsync(Guid userId, CoreUserPassword coreUserRequest, CancellationToken cancellationToken);
-    Task<ApiResponse<CoreUserChangeResponse>> ChangeCorePasswordAsync(Guid userId, ChangeCorePasswordRequest request, CancellationToken cancellationToken);
+    Task<CoreUserIV> RegisterCoreUserPasswordAsync(Guid userId, CoreUserPasswordCreate coreUserRequest, CancellationToken cancellationToken);
+    Task<CoreUserIV> GetCoreUserIVAsync(Guid userId, CoreUserPassword coreUserRequest, CancellationToken cancellationToken);
+    Task<CoreUserChangeResponse> ChangeCorePasswordAsync(Guid userId, ChangeCorePasswordRequest request, CancellationToken cancellationToken);
 }

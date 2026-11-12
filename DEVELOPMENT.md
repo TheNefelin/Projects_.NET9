@@ -29,13 +29,20 @@ WebApi ──> WebApiPM.Infrastructure ──> WebApiPM.Application ──> WebA
 
 ## Decisiones técnicas
 
-### 1. Envelope de respuesta único: `ApiResponse<T>` (en vez de ProblemDetails)
+### 1. Contrato de respuesta: DTO plano + `ProblemDetails` (RFC 9457)
 
-**Decisión**: mantener `ApiResponse<T>` como formato único para éxito y error, y estandarizar todos los caminos de error hacia ese envelope (validación de modelo, JWT 401, 404 y excepciones).
+**Decisión**: los servicios devuelven el **DTO directamente** (sin envelope) y todos los errores salen como **`application/problem+json`** con `status`/`title`/`detail`/`traceId`. Los caminos de error son cinco y todos unifican el mismo formato:
+- Validación de modelo → `InvalidModelStateResponseFactory` devuelve `ValidationProblemDetails` (400).
+- JWT 401 → `JwtBearerEvents.OnChallenge` (401).
+- Rate limiter → `OnRejected` (429).
+- 404 de rutas inexistentes → `MapFallback` (404).
+- Excepciones no controladas → `GlobalExceptionHandler` (`IExceptionHandler`): 400 validación, 403 registro deshabilitado, 409 email duplicado, 429 demasiados intentos, 401 credenciales/sesión inválida, 404 recurso inexistente, 500 genérico.
 
-**Motivación**: los clientes actuales ya consumen `isSuccess/statusCode/message/data`. Adoptar ProblemDetails (RFC 9457) habría introducido un segundo formato de error, agravando la inconsistencia que motivó el refactor. ProblemDetails queda descartado salvo una futura v2 deliberadamente breaking.
+**Motivación**: `ApiResponse<T>` duplicaba información que el status HTTP ya transportaba y obligaba al cliente a desenvolver cada respuesta. Con `ProblemDetails` el cliente deserializa un único tipo de error.
 
-> ℹ️ **Divergencia con la versión .NET 10**: `PasswordManager_.NET10` sí migró a `ProblemDetails` (su "contrato v2"), y por lo tanto **su cliente MAUI deserializa DTOs planos + `ProblemDetails`**, no el envelope. Aquí se mantiene el envelope a propósito (decisión de este repo, con sus clientes actuales); unificar ambos contratos exige migrar los clientes en el mismo despliegue.
+**Consecuencia práctica**: **el cliente MAUI v10 (`PasswordManager_.NET10`) habla con esta API y con `WebApiCore` (.NET 10) indistintamente**, porque ambas exponen exactamente el mismo contrato (mismas rutas, mismos headers, mismos DTOs y mismo formato de error). Es el motivo de esta decisión.
+
+> ℹ️ Historia: esta API mantenía antes el envelope `ApiResponse<T>` (decisión documentada, con sus clientes actuales). La migración al formato plano fue **deliberadamente breaking** y se hizo junto con el cliente, precisamente para habilitar el uso de un único cliente (MAUI v10) contra las dos APIs.
 
 ### 1 bis. Sin stored procedures: Dapper con SQL parametrizado
 
@@ -157,8 +164,8 @@ Los fallos incrementan el contador; el éxito resetea; `GetRemainingBlockTime` p
 
 ## Próximos pasos
 
-1. **Unificar el contrato de error con la versión .NET 10** (`ProblemDetails` en vez de `ApiResponse<T>`): exige migrar los clientes en el mismo despliegue (cambio de contrato).
-2. **CI**: no hay workflow en este repo (`.github/workflows` está vacío). Portar el de la versión .NET 10 (compila ambas suites y corre los tests contra un SQL Server efímero).
-3. **Config de producción real**: `SqlServerWeb`, `JWT:Key` secreta, `Cors:AllowedOrigins` y `RateLimit` en el `appsettings.json` de producción.
-4. Eliminar `SqlResponse` y el proyecto `Utils` (sin uso).
-5. **Prueba de migración**: ejecutar `SqlServerPM_Migrate_SqlTokenHash.sql` contra una base con el esquema viejo (con la API detenida) y validar que las sesiones abiertas siguen funcionando.
+1. **CI**: no hay workflow en este repo (`.github/workflows` está vacío). Portar el de la versión .NET 10 (compila ambas suites y corre los tests contra un SQL Server efímero).
+2. **Config de producción real**: `SqlServerWeb`, `JWT:Key` secreta, `Cors:AllowedOrigins` y `RateLimit` en el `appsettings.json` de producción.
+3. Eliminar `SqlResponse` y el proyecto `Utils` (sin uso).
+4. **Prueba de migración**: ejecutar `SqlServerPM_Migrate_SqlTokenHash.sql` contra una base con el esquema viejo (con la API detenida) y validar que las sesiones abiertas siguen funcionando.
+5. **Verificar en el cliente MAUI v10** contra esta API (el contrato ya es idéntico al de `WebApiCore`): login, alta de clave maestra, CRUD de secretos y cambio de clave maestra.

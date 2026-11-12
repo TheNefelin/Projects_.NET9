@@ -19,7 +19,7 @@ public class CoreUserService : ICoreUserService
         _passwordHasher = passwordHasher;
     }
 
-    public async Task<ApiResponse<CoreUserIV>> RegisterCoreUserPasswordAsync(Guid userId, CoreUserPasswordCreate coreUserPassword, CancellationToken cancellationToken)
+    public async Task<CoreUserIV> RegisterCoreUserPasswordAsync(Guid userId, CoreUserPasswordCreate coreUserPassword, CancellationToken cancellationToken)
     {
         var coreUser = await _coreUserRepository.GetCoreUserAsync(
             new CoreUser
@@ -30,10 +30,10 @@ public class CoreUserService : ICoreUserService
             cancellationToken);
 
         if (coreUser == null)
-            return ApiResponse.Failure<CoreUserIV>(401, "Debes iniciar sesión.");
+            throw new UserSessionInvalidException();
 
         if (!string.IsNullOrEmpty(coreUser.HashPM) && !string.IsNullOrEmpty(coreUser.SaltPM))
-            return ApiResponse.Failure<CoreUserIV>(400, "Ya tienes una clave de encriptación creada.");
+            throw new CorePasswordAlreadyExistsException();
 
         var (hash, salt) = _passwordHasher.HashPassword(coreUserPassword.Password);
         coreUser.HashPM = hash;
@@ -41,12 +41,10 @@ public class CoreUserService : ICoreUserService
 
         await _coreUserRepository.RegisterCoreUserPasswordAsync(coreUser, cancellationToken);
 
-        return ApiResponse.Success(
-            new CoreUserIV { IV = salt },
-            "Clave de encriptación creada correctamente.");
+        return new CoreUserIV { IV = salt };
     }
 
-    public async Task<ApiResponse<CoreUserIV>> GetCoreUserIVAsync(Guid userId, CoreUserPassword coreUserPassword, CancellationToken cancellationToken)
+    public async Task<CoreUserIV> GetCoreUserIVAsync(Guid userId, CoreUserPassword coreUserPassword, CancellationToken cancellationToken)
     {
         var coreUser = await _coreUserRepository.GetCoreUserAsync(
             new CoreUser
@@ -57,20 +55,18 @@ public class CoreUserService : ICoreUserService
             cancellationToken);
 
         if (coreUser == null)
-            return ApiResponse.Failure<CoreUserIV>(401, "Debes iniciar sesión.");
+            throw new UserSessionInvalidException();
 
         if (string.IsNullOrEmpty(coreUser.HashPM) || string.IsNullOrEmpty(coreUser.SaltPM))
-            return ApiResponse.Failure<CoreUserIV>(401, "Debes crear una clave de encriptación.");
+            throw new CorePasswordNotConfiguredException();
 
         if (!_passwordHasher.VerifyPassword(coreUserPassword.Password, coreUser.HashPM, coreUser.SaltPM))
-            return ApiResponse.Failure<CoreUserIV>(401, "Usuario o contraseña incorrecta.");
+            throw new InvalidCredentialsException();
 
-        return ApiResponse.Success(
-            new CoreUserIV { IV = coreUser.SaltPM },
-            "Autenticación exitosa.");
+        return new CoreUserIV { IV = coreUser.SaltPM };
     }
 
-    public async Task<ApiResponse<CoreUserChangeResponse>> ChangeCorePasswordAsync(Guid userId, ChangeCorePasswordRequest request, CancellationToken cancellationToken)
+    public async Task<CoreUserChangeResponse> ChangeCorePasswordAsync(Guid userId, ChangeCorePasswordRequest request, CancellationToken cancellationToken)
     {
         var coreUser = await _coreUserRepository.GetCoreUserAsync(
             new CoreUser
@@ -81,19 +77,18 @@ public class CoreUserService : ICoreUserService
             cancellationToken);
 
         if (coreUser == null)
-            return ApiResponse.Failure<CoreUserChangeResponse>(401, "Debes iniciar sesión.");
+            throw new UserSessionInvalidException();
 
         if (string.IsNullOrEmpty(coreUser.HashPM) || string.IsNullOrEmpty(coreUser.SaltPM))
-            return ApiResponse.Failure<CoreUserChangeResponse>(401, "Debes crear una clave de encriptación.");
+            throw new CorePasswordNotConfiguredException();
 
         if (!_passwordHasher.VerifyPassword(request.OldPassword, coreUser.HashPM, coreUser.SaltPM))
-            return ApiResponse.Failure<CoreUserChangeResponse>(401, "Usuario o contraseña incorrecta.");
+            throw new InvalidCredentialsException();
 
         // La sal/IV de 16 bytes la genera el cliente (dueno del cifrado) para
         // poder re-cifrar antes del cambio; aqui solo se valida que sea material
         // valido antes de usarla en el hash PBKDF2.
-        if (!ValidNewSalt(request.Salt, out string? saltError))
-            return ApiResponse.Failure<CoreUserChangeResponse>(400, saltError!);
+        ValidNewSalt(request.Salt);
 
         var newHash = _passwordHasher.HashPassword(request.NewPassword, request.Salt);
         var newSqlToken = Guid.NewGuid();
@@ -109,36 +104,24 @@ public class CoreUserService : ICoreUserService
             request.Records.Select(ToEntity),
             cancellationToken);
 
-        return ApiResponse.Success(
-            new CoreUserChangeResponse { IV = request.Salt, SqlToken = newSqlToken },
-            "Clave maestra actualizada correctamente.");
+        return new CoreUserChangeResponse { IV = request.Salt, SqlToken = newSqlToken };
     }
 
-    private static bool ValidNewSalt(string salt, out string? error)
+    private static void ValidNewSalt(string salt)
     {
         if (string.IsNullOrEmpty(salt))
-        {
-            error = "La nueva sal es obligatoria.";
-            return false;
-        }
+            throw new RequestValidationException("La nueva sal es obligatoria.");
 
         try
         {
             byte[] bytes = Convert.FromBase64String(salt);
             if (bytes.Length != SaltSize)
-            {
-                error = "La nueva sal debe ser de 16 bytes.";
-                return false;
-            }
+                throw new RequestValidationException("La nueva sal debe ser de 16 bytes.");
         }
         catch (FormatException)
         {
-            error = "La nueva sal no es base64 válido.";
-            return false;
+            throw new RequestValidationException("La nueva sal no es base64 válido.");
         }
-
-        error = null;
-        return true;
     }
 
     private static CoreData ToEntity(CoreDataReplacement replacement)
